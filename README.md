@@ -12,7 +12,16 @@ Instead of piecing together information from `ls`, `namei`, `id`, `getfacl` and 
 y-not USER OPERATION PATH
 ```
 
-`OPERATION` must be `read`, `write`, or `execute`.
+`OPERATION` accepts `read`/`r`, `write`/`w`, or `execute`/`x`.
+
+## Build & test
+
+```sh
+make          # release build ./y-not
+make debug    # with ASan/UBSan
+make check    # run all unit tests (always built with ASan/UBSan)
+make install  # install to /usr/local/bin  (PREFIX= to override)
+```
 
 ## Architecture
 
