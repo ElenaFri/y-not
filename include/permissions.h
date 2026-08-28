@@ -15,9 +15,10 @@ typedef enum
 {
     REASON_NONE = 0,
     REASON_OWNER_DENIED,
-    REASON_GROUP_MISSING,
+    REASON_GROUP_DENIED,  /* in group, but group bits deny */
+    REASON_GROUP_MISSING, /* not in group; group bits would allow */
     REASON_OTHER_DENIED,
-    REASON_NOT_TRAVERSABLE, /* missing execute bit on a directory */
+    REASON_NOT_TRAVERSABLE,
     REASON_NOT_FOUND,
 } AccessReason;
 
