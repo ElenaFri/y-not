@@ -6,6 +6,11 @@
 #include <string.h>
 #include <unistd.h>
 
+/* PATH_MAX may be absent on systems without a fixed path limit */
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
+
 static void stat_component(PathComponent *c)
 {
     if (stat(c->path, &c->st) != -1)
@@ -15,82 +20,101 @@ static void stat_component(PathComponent *c)
                            : REASON_NOT_TRAVERSABLE;
 }
 
+static int build_abs(const char *input, char *buf, size_t size)
+{
+    size_t ilen = strlen(input);
+    if (*input == '/')
+    {
+        if (ilen >= size)
+            return -1;
+        memcpy(buf, input, ilen + 1);
+    }
+    else
+    {
+        char *cwd = getcwd(buf, size);
+        if (!cwd)
+            return -1;
+        size_t clen = strlen(cwd);
+        if (clen + 1 + ilen >= size)
+            return -1;
+        cwd[clen] = '/';
+        memcpy(cwd + clen + 1, input, ilen + 1);
+    }
+    return 0;
+}
+
+/* Returns false on the first allocation failure; already-set paths remain valid. */
+static bool fill_components(PathComponent *comp, size_t count,
+                            const char *abs, size_t len)
+{
+    comp[0].path = strdup("/");
+    if (!comp[0].path)
+        return false;
+    stat_component(&comp[0]);
+    if (len <= 1)
+        return true;
+
+    size_t ci = 1;
+    for (size_t i = 1; i < len && ci < count; i++)
+    {
+        if (abs[i] == '/')
+        {
+            comp[ci].path = strndup(abs, i);
+            if (!comp[ci].path)
+                return false;
+            stat_component(&comp[ci]);
+            ci++;
+        }
+    }
+    comp[count - 1].path = strdup(abs);
+    if (!comp[count - 1].path)
+        return false;
+    stat_component(&comp[count - 1]);
+    return true;
+}
+
 AccessPath *path_resolve(const char *input)
 {
     if (!input)
         return NULL;
 
     char abs[PATH_MAX];
-    size_t ilen = strlen(input);
-
-    if (*input == '/')
-    {
-        if (ilen >= sizeof(abs))
-            return NULL;
-        memcpy(abs, input, ilen + 1);
-    }
-    else
-    {
-        if (!getcwd(abs, sizeof(abs)))
-            return NULL;
-        size_t clen = strlen(abs);
-        if (clen + 1 + ilen >= sizeof(abs))
-            return NULL;
-        abs[clen] = '/';
-        memcpy(abs + clen + 1, input, ilen + 1);
-    }
+    if (build_abs(input, abs, sizeof(abs)) != 0)
+        return NULL;
 
     size_t len = strlen(abs);
     while (len > 1 && abs[len - 1] == '/')
         abs[--len] = '\0';
 
-    /* one component per '/' plus one for the last segment */
     size_t count = 1;
-    for (size_t i = 1; i < len; i++)
-        if (abs[i] == '/')
-            count++;
     if (len > 1)
+    {
+        for (size_t i = 1; i < len; i++)
+            if (abs[i] == '/')
+                count++;
         count++;
+    }
 
     AccessPath *ap = malloc(sizeof(*ap));
     if (!ap)
         return NULL;
+
+    ap->count = count;
     ap->components = calloc(count, sizeof(PathComponent));
     if (!ap->components)
     {
         free(ap);
         return NULL;
     }
-    ap->count = count;
 
-    size_t ci = 0;
-    ap->components[ci].path = strdup("/");
-    if (!ap->components[ci].path)
-        goto err;
-    stat_component(&ap->components[ci++]);
+    if (fill_components(ap->components, count, abs, len))
+        return ap;
 
-    if (len > 1)
-    {
-        for (size_t i = 1; i < len; i++)
-        {
-            if (abs[i] == '/')
-            {
-                ap->components[ci].path = strndup(abs, i);
-                if (!ap->components[ci].path)
-                    goto err;
-                stat_component(&ap->components[ci++]);
-            }
-        }
-        ap->components[ci].path = strdup(abs);
-        if (!ap->components[ci].path)
-            goto err;
-        stat_component(&ap->components[ci]);
-    }
-
-    return ap;
-
-err:
-    path_free(ap);
+    /* fill failed: free explicitly so the analyser can track ap */
+    for (size_t i = 0; i < count; i++)
+        free(ap->components[i].path);
+    free(ap->components);
+    free(ap);
     return NULL;
 }
 
@@ -98,8 +122,11 @@ void path_free(AccessPath *ap)
 {
     if (!ap)
         return;
-    for (size_t i = 0; i < ap->count; i++)
-        free(ap->components[i].path);
-    free(ap->components);
+    if (ap->components)
+    {
+        for (size_t i = 0; i < ap->count; i++)
+            free(ap->components[i].path);
+        free(ap->components);
+    }
     free(ap);
 }

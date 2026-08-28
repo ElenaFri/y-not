@@ -27,7 +27,6 @@ int main(void)
     User bob = make_user(1002, 1002, bob_g, 1);
     User carol = make_user(1003, 1003, carol_g, 2);
 
-    /* file: owner=alice, group=devs(1001) */
     struct stat st_644 = make_stat(1000, 1001, 0644);
     struct stat st_640 = make_stat(1000, 1001, 0640);
     struct stat st_600 = make_stat(1000, 1001, 0600);
