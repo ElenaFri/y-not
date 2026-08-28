@@ -57,7 +57,7 @@ check: $(TESTBINS)
 	[ $$fail -eq 0 ]
 
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -I$(INCDIR) -o $@ $^
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^
 
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)

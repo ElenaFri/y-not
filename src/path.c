@@ -69,19 +69,18 @@ AccessPath *path_resolve(const char *input)
         goto err;
     stat_component(&ap->components[ci++]);
 
-    for (size_t i = 1; len > 1 && i < len; i++)
-    {
-        if (abs[i] == '/')
-        {
-            ap->components[ci].path = strndup(abs, i);
-            if (!ap->components[ci].path)
-                goto err;
-            stat_component(&ap->components[ci++]);
-        }
-    }
-
     if (len > 1)
     {
+        for (size_t i = 1; i < len; i++)
+        {
+            if (abs[i] == '/')
+            {
+                ap->components[ci].path = strndup(abs, i);
+                if (!ap->components[ci].path)
+                    goto err;
+                stat_component(&ap->components[ci++]);
+            }
+        }
         ap->components[ci].path = strdup(abs);
         if (!ap->components[ci].path)
             goto err;
