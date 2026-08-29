@@ -59,5 +59,11 @@ check: $(TESTBINS)
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^
 
+# test_access links all modules it orchestrates
+$(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
+    $(SRCDIR)/access.c $(SRCDIR)/permissions.c \
+    $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
