@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
     }
 
     AccessResult result = check_access(user, path, operation);
-    render_result_text(&result, operation);
+    render_result_text(&result, user, operation);
 
     int exit_code = result.allowed ? EXIT_SUCCESS : EXIT_FAILURE;
     access_result_free(&result);
