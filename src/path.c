@@ -73,6 +73,49 @@ static bool fill_components(PathComponent *comp, size_t count,
     return true;
 }
 
+/* Resolve . and .. segments in an absolute path, in-place. */
+static void normalize_abs(char *path)
+{
+    char buf[PATH_MAX];
+    char *dst = buf + 1;
+    const char *src = path + 1;
+    buf[0] = '/';
+
+    while (*src)
+    {
+        while (*src == '/')
+            src++;
+        if (!*src)
+            break;
+
+        const char *seg = src;
+        while (*src && *src != '/')
+            src++;
+        size_t slen = (size_t)(src - seg);
+
+        if (slen == 1 && *seg == '.')
+            continue;
+
+        if (slen == 2 && seg[0] == '.' && seg[1] == '.')
+        {
+            if (dst > buf + 1)
+            {
+                dst--;
+                while (*(dst - 1) != '/')
+                    dst--;
+            }
+            continue;
+        }
+
+        if (*(dst - 1) != '/')
+            *dst++ = '/';
+        memcpy(dst, seg, slen);
+        dst += slen;
+    }
+    *dst = '\0';
+    memcpy(path, buf, (size_t)(dst - buf + 1));
+}
+
 AccessPath *path_resolve(const char *input)
 {
     if (!input)
@@ -82,9 +125,9 @@ AccessPath *path_resolve(const char *input)
     if (build_abs(input, abs, sizeof(abs)) != 0)
         return NULL;
 
+    normalize_abs(abs);
+
     size_t len = strlen(abs);
-    while (len > 1 && abs[len - 1] == '/')
-        abs[--len] = '\0';
 
     size_t count = 1;
     if (len > 1)

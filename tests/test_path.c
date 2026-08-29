@@ -57,5 +57,35 @@ int main(void)
         path_free(nope);
     }
 
+    /* normalisation : . supprimé */
+    AccessPath *dot = path_resolve("/usr/./bin/ls");
+    CHECK(dot != NULL);
+    if (dot)
+    {
+        CHECK(dot->count == 4);
+        CHECK(strcmp(dot->components[3].path, "/usr/bin/ls") == 0);
+        path_free(dot);
+    }
+
+    /* normalisation : .. résolu */
+    AccessPath *dotdot = path_resolve("/usr/bin/../bin/ls");
+    CHECK(dotdot != NULL);
+    if (dotdot)
+    {
+        CHECK(dotdot->count == 4);
+        CHECK(strcmp(dotdot->components[3].path, "/usr/bin/ls") == 0);
+        path_free(dotdot);
+    }
+
+    /* normalisation : impossible de remonter au-dessus de la racine */
+    AccessPath *above = path_resolve("/../usr/bin/ls");
+    CHECK(above != NULL);
+    if (above)
+    {
+        CHECK(above->count == 4);
+        CHECK(strcmp(above->components[1].path, "/usr") == 0);
+        path_free(above);
+    }
+
     return TEST_SUMMARY();
 }
