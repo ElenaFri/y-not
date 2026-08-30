@@ -112,6 +112,9 @@ static void print_reason(const AccessResult *result, AccessOperation op)
     case REASON_OWNER_DENIED:
         printf("  reason      you own this file but lack %s permission\n", o);
         break;
+    case REASON_ACL_DENIED:
+        printf("  reason      ACL entry found for you but it does not grant %s permission\n", o);
+        break;
     case REASON_OTHER_DENIED:
         printf("  reason      no %s permission: not the owner and not in the file's group\n", o);
         break;

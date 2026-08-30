@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sys/acl.h>
 #include <sys/stat.h>
 #include <stdbool.h>
 #include "user.h"
@@ -18,6 +19,7 @@ typedef enum
     REASON_GROUP_DENIED,  /* in group, but group bits deny */
     REASON_GROUP_MISSING, /* not in group; group bits would allow */
     REASON_OTHER_DENIED,
+    REASON_ACL_DENIED, /* ACL entry exists but denies this operation */
     REASON_NOT_TRAVERSABLE,
     REASON_NOT_FOUND,
 } AccessReason;
@@ -30,4 +32,5 @@ typedef struct
 
 PermissionResult evaluate_permissions(const User *user,
                                       const struct stat *st,
-                                      AccessOperation op);
+                                      AccessOperation op,
+                                      acl_t acl);

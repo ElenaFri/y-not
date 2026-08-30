@@ -1,5 +1,6 @@
 #pragma once
 
+#include <sys/acl.h>
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <stddef.h>
@@ -9,6 +10,7 @@ typedef struct
 {
     char *path;
     struct stat st;
+    acl_t acl; /* NULL when no extended ACL entries */
     bool can_read;
     bool can_write;
     bool can_execute;

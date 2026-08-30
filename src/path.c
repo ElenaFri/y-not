@@ -1,5 +1,6 @@
 #include "path.h"
 
+#include <acl/libacl.h>
 #include <errno.h>
 #include <limits.h>
 #include <stdlib.h>
@@ -11,13 +12,24 @@
 #define PATH_MAX 4096
 #endif
 
-static void stat_component(PathComponent *c)
+static void free_component(PathComponent *c)
 {
-    if (stat(c->path, &c->st) != -1)
+    free(c->path);
+    if (c->acl)
+        acl_free(c->acl);
+}
+
+static void inspect_component(PathComponent *c)
+{
+    if (stat(c->path, &c->st) == -1)
+    {
+        c->denial_reason = (errno == ENOENT || errno == ENOTDIR)
+                               ? REASON_NOT_FOUND
+                               : REASON_NOT_TRAVERSABLE;
         return;
-    c->denial_reason = (errno == ENOENT || errno == ENOTDIR)
-                           ? REASON_NOT_FOUND
-                           : REASON_NOT_TRAVERSABLE;
+    }
+    if (acl_extended_file(c->path) == 1)
+        c->acl = acl_get_file(c->path, ACL_TYPE_ACCESS);
 }
 
 static int build_abs(const char *input, char *buf, size_t size)
@@ -50,7 +62,7 @@ static bool fill_components(PathComponent *comp, size_t count,
     comp[0].path = strdup("/");
     if (!comp[0].path)
         return false;
-    stat_component(&comp[0]);
+    inspect_component(&comp[0]);
     if (len <= 1)
         return true;
 
@@ -62,14 +74,14 @@ static bool fill_components(PathComponent *comp, size_t count,
             comp[ci].path = strndup(abs, i);
             if (!comp[ci].path)
                 return false;
-            stat_component(&comp[ci]);
+            inspect_component(&comp[ci]);
             ci++;
         }
     }
     comp[count - 1].path = strdup(abs);
     if (!comp[count - 1].path)
         return false;
-    stat_component(&comp[count - 1]);
+    inspect_component(&comp[count - 1]);
     return true;
 }
 
@@ -155,7 +167,7 @@ AccessPath *path_resolve(const char *input)
 
     /* fill failed: free explicitly so the analyser can track ap */
     for (size_t i = 0; i < count; i++)
-        free(ap->components[i].path);
+        free_component(&ap->components[i]);
     free(ap->components);
     free(ap);
     return NULL;
@@ -168,7 +180,7 @@ void path_free(AccessPath *ap)
     if (ap->components)
     {
         for (size_t i = 0; i < ap->count; i++)
-            free(ap->components[i].path);
+            free_component(&ap->components[i]);
         free(ap->components);
     }
     free(ap);

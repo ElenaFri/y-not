@@ -16,6 +16,7 @@ CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
 LDFLAGS       :=
 LDFLAGS_DEBUG := -fsanitize=address,undefined
+LDLIBS        := -lacl
 
 # Honour CFLAGS from environment, default to release profile
 CFLAGS ?= $(CFLAGS_RELEASE)
@@ -36,7 +37,7 @@ debug: LDFLAGS := $(LDFLAGS_DEBUG)
 debug: $(TARGET)
 
 $(TARGET): $(OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
@@ -57,13 +58,13 @@ check: $(TESTBINS)
 	[ $$fail -eq 0 ]
 
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
     $(SRCDIR)/access.c $(SRCDIR)/permissions.c \
     $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)

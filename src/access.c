@@ -31,9 +31,9 @@ AccessResult check_access(const User *user,
 
         /* Evaluate all three operations: renderer needs the full picture */
         PermissionResult pr[3];
-        pr[ACCESS_READ] = evaluate_permissions(user, &comp->st, ACCESS_READ);
-        pr[ACCESS_WRITE] = evaluate_permissions(user, &comp->st, ACCESS_WRITE);
-        pr[ACCESS_EXECUTE] = evaluate_permissions(user, &comp->st, ACCESS_EXECUTE);
+        pr[ACCESS_READ] = evaluate_permissions(user, &comp->st, ACCESS_READ, comp->acl);
+        pr[ACCESS_WRITE] = evaluate_permissions(user, &comp->st, ACCESS_WRITE, comp->acl);
+        pr[ACCESS_EXECUTE] = evaluate_permissions(user, &comp->st, ACCESS_EXECUTE, comp->acl);
 
         comp->can_read = pr[ACCESS_READ].allowed;
         comp->can_write = pr[ACCESS_WRITE].allowed;
