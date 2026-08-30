@@ -79,7 +79,7 @@ static const char *op_name(AccessOperation op)
     }
 }
 
-static void print_reason(const AccessResult *result)
+static void print_reason(const AccessResult *result, AccessOperation op)
 {
     const PathComponent *bc = NULL;
     if (result->access_path && result->blocked_path)
@@ -97,25 +97,26 @@ static void print_reason(const AccessResult *result)
 
     char gbuf[32];
     const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
+    const char *o = op_name(op);
 
     switch (result->reason)
     {
     case REASON_GROUP_MISSING:
-        printf("  reason      not in group \"%s\" (which has this permission)\n",
-               grp ? grp : "?");
+        printf("  reason      not in group \"%s\" (which would allow %s)\n",
+               grp ? grp : "?", o);
         break;
     case REASON_GROUP_DENIED:
-        printf("  reason      in group \"%s\" but group bits deny this\n",
-               grp ? grp : "?");
+        printf("  reason      in group \"%s\" but the group has no %s permission\n",
+               grp ? grp : "?", o);
         break;
     case REASON_OWNER_DENIED:
-        printf("  reason      owner bits do not allow this\n");
+        printf("  reason      you own this file but lack %s permission\n", o);
         break;
     case REASON_OTHER_DENIED:
-        printf("  reason      other bits do not allow this\n");
+        printf("  reason      no %s permission: not the owner and not in the file's group\n", o);
         break;
     case REASON_NOT_TRAVERSABLE:
-        printf("  reason      directory is not traversable\n");
+        printf("  reason      cannot enter this directory\n");
         break;
     case REASON_NOT_FOUND:
         printf("  reason      no such file or directory\n");
@@ -216,7 +217,7 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
         printf("%s cannot %s %s\n", user->name, op_name(op), target);
         if (result->blocked_path)
             printf("\n  blocked at  %s\n", result->blocked_path);
-        print_reason(result);
+        print_reason(result, op);
     }
     putchar('\n');
     render_tree(result, op);

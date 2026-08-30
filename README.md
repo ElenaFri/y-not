@@ -4,8 +4,6 @@ A small Linux CLI that explains why a user can or cannot access a file or direct
 
 Instead of piecing together information from `ls`, `namei`, `id`, `getfacl` and other similar tools, `y-not` traces the access path and identifies what is blocking access.
 
-> Early development
-
 ## Usage
 
 ```sh
