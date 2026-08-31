@@ -51,7 +51,7 @@ $(BUILDDIR):
 install: all
 	install -Dm755 $(TARGET) $(BINDIR)/$(TARGET)
 
-# Tests : toujours compilés avec ASan/UBSan, indépendamment du profil principal
+# Tests are always built with ASan/UBSan, regardless of the main profile
 check: $(TESTBINS)
 	@fail=0; \
 	for t in $^; do ./$$t || fail=$$((fail+1)); done; \

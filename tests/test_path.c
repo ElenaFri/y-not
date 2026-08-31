@@ -1,14 +1,20 @@
 #include "../include/path.h"
 #include "testlib.h"
 
+#include <acl/libacl.h>
 #include <string.h>
+#include <stdlib.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 int main(void)
 {
-    path_free(NULL); /* doit être silencieux */
+    path_free(NULL); /* must be silent */
 
-    /* racine seule */
+    /* NULL input is rejected */
+    CHECK(path_resolve(NULL) == NULL);
+
+    /* root alone */
     AccessPath *root = path_resolve("/");
     CHECK(root != NULL);
     if (root)
@@ -20,7 +26,7 @@ int main(void)
         path_free(root);
     }
 
-    /* /var : 2 composants, répertoire fiable et non world-writable */
+    /* /var : 2 components, a reliable non world-writable directory */
     AccessPath *tmp = path_resolve("/var");
     CHECK(tmp != NULL);
     if (tmp)
@@ -32,7 +38,7 @@ int main(void)
         path_free(tmp);
     }
 
-    /* /usr/bin/ls : 4 composants */
+    /* /usr/bin/ls : 4 components */
     AccessPath *ls = path_resolve("/usr/bin/ls");
     CHECK(ls != NULL);
     if (ls)
@@ -45,7 +51,7 @@ int main(void)
         path_free(ls);
     }
 
-    /* chemin inexistant : dernier composant marqué NOT_FOUND */
+    /* non-existent path : last component marked NOT_FOUND */
     AccessPath *nope = path_resolve("/var/__y_not_no_such_path__");
     CHECK(nope != NULL);
     if (nope)
@@ -57,7 +63,7 @@ int main(void)
         path_free(nope);
     }
 
-    /* normalisation : . supprimé */
+    /* normalization: . removed */
     AccessPath *dot = path_resolve("/usr/./bin/ls");
     CHECK(dot != NULL);
     if (dot)
@@ -67,7 +73,7 @@ int main(void)
         path_free(dot);
     }
 
-    /* normalisation : .. résolu */
+    /* normalization: .. resolved */
     AccessPath *dotdot = path_resolve("/usr/bin/../bin/ls");
     CHECK(dotdot != NULL);
     if (dotdot)
@@ -77,7 +83,7 @@ int main(void)
         path_free(dotdot);
     }
 
-    /* normalisation : impossible de remonter au-dessus de la racine */
+    /* normalization: cannot go above the root */
     AccessPath *above = path_resolve("/../usr/bin/ls");
     CHECK(above != NULL);
     if (above)
@@ -85,6 +91,59 @@ int main(void)
         CHECK(above->count == 4);
         CHECK(strcmp(above->components[1].path, "/usr") == 0);
         path_free(above);
+    }
+
+    /* relative path : resolved against the current working directory */
+    CHECK(chdir("/usr/bin") == 0);
+    AccessPath *rel = path_resolve("ls");
+    CHECK(rel != NULL);
+    if (rel)
+    {
+        CHECK(rel->count == 4);
+        CHECK(strcmp(rel->components[3].path, "/usr/bin/ls") == 0);
+        path_free(rel);
+    }
+
+    /* no ACL on a plain file : component.acl stays NULL */
+    char tmpl_plain[] = "/tmp/y_not_test_plain_XXXXXX";
+    int fd_plain = mkstemp(tmpl_plain);
+    CHECK(fd_plain != -1);
+    if (fd_plain != -1)
+    {
+        close(fd_plain);
+        AccessPath *plain = path_resolve(tmpl_plain);
+        CHECK(plain != NULL);
+        if (plain)
+        {
+            CHECK(plain->components[plain->count - 1].acl == NULL);
+            path_free(plain);
+        }
+        unlink(tmpl_plain);
+    }
+
+    /* extended ACL on a file : component.acl is populated */
+    char tmpl_acl[] = "/tmp/y_not_test_acl_XXXXXX";
+    int fd_acl = mkstemp(tmpl_acl);
+    CHECK(fd_acl != -1);
+    if (fd_acl != -1)
+    {
+        close(fd_acl);
+        acl_t new_acl = acl_from_text("user::rw-,user:0:r--,group::---,mask::r--,other::---");
+        CHECK(new_acl != NULL);
+        if (new_acl)
+        {
+            CHECK(acl_set_file(tmpl_acl, ACL_TYPE_ACCESS, new_acl) == 0);
+            acl_free(new_acl);
+
+            AccessPath *withacl = path_resolve(tmpl_acl);
+            CHECK(withacl != NULL);
+            if (withacl)
+            {
+                CHECK(withacl->components[withacl->count - 1].acl != NULL);
+                path_free(withacl);
+            }
+        }
+        unlink(tmpl_acl);
     }
 
     return TEST_SUMMARY();

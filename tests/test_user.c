@@ -7,12 +7,12 @@
 
 int main(void)
 {
-    /* user_free(NULL) doit être silencieux */
+    /* user_free(NULL) must be silent */
     user_free(NULL);
 
     CHECK(user_lookup("__y_not_no_such_user__") == NULL);
 
-    /* root est toujours présent sur Linux */
+    /* root always exists on Linux */
     User *root = user_lookup("root");
     CHECK(root != NULL);
     if (root)
@@ -22,7 +22,7 @@ int main(void)
         CHECK(strcmp(root->name, "root") == 0);
         CHECK(root->group_count >= 1);
 
-        /* getgrouplist inclut toujours le gid primaire */
+        /* getgrouplist always includes the primary gid */
         int found = 0;
         for (size_t i = 0; i < root->group_count; i++)
             if (root->groups[i] == root->primary_gid)
@@ -34,7 +34,7 @@ int main(void)
         user_free(root);
     }
 
-    /* utilisateur courant */
+    /* current user */
     struct passwd *pw = getpwuid(getuid());
     if (pw)
     {
