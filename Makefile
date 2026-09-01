@@ -52,9 +52,10 @@ install: all
 	install -Dm755 $(TARGET) $(BINDIR)/$(TARGET)
 
 # Tests are always built with ASan/UBSan, regardless of the main profile
-check: $(TESTBINS)
+check: $(TARGET) $(TESTBINS)
 	@fail=0; \
-	for t in $^; do ./$$t || fail=$$((fail+1)); done; \
+	for t in $(TESTBINS); do ./$$t || fail=$$((fail+1)); done; \
+	./$(TESTDIR)/test_cli.sh || fail=$$((fail+1)); \
 	[ $$fail -eq 0 ]
 
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
