@@ -61,9 +61,14 @@ check: $(TARGET) $(TESTBINS)
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+# test_permissions exercises the ACL fallback too
+$(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
+    $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c | $(BUILDDIR)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
-    $(SRCDIR)/access.c $(SRCDIR)/permissions.c \
+    $(SRCDIR)/access.c $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
     $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
