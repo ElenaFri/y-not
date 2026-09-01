@@ -3,11 +3,16 @@
 
 #include <acl/libacl.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 #include <unistd.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 int main(void)
 {
@@ -142,6 +147,74 @@ int main(void)
         path_free(above);
     }
 
+    /* normalization: repeated leading .. still clamps at the root */
+    AccessPath *above_many = path_resolve("/../../../usr");
+    CHECK(above_many != NULL);
+    if (above_many)
+    {
+        CHECK(above_many->count == 2);
+        CHECK(strcmp(above_many->components[1].path, "/usr") == 0);
+        path_free(above_many);
+    }
+
+    /* normalization: going up from a real subdir collapses exactly to root */
+    AccessPath *up_to_root = path_resolve("/usr/..");
+    CHECK(up_to_root != NULL);
+    if (up_to_root)
+    {
+        CHECK(up_to_root->count == 1);
+        CHECK(strcmp(up_to_root->components[0].path, "/") == 0);
+        path_free(up_to_root);
+    }
+
+    /* normalization: "..." is a literal name, not a shorthand for anything */
+    AccessPath *literal_dots = path_resolve("/usr/.../bin");
+    CHECK(literal_dots != NULL);
+    if (literal_dots)
+    {
+        CHECK(literal_dots->count == 4);
+        CHECK(strcmp(literal_dots->components[2].path, "/usr/...") == 0);
+        CHECK(strcmp(literal_dots->components[3].path, "/usr/.../bin") == 0);
+        path_free(literal_dots);
+    }
+
+    /* many consecutive slashes collapse to a single separator */
+    AccessPath *slashes = path_resolve("////");
+    CHECK(slashes != NULL);
+    if (slashes)
+    {
+        CHECK(slashes->count == 1);
+        CHECK(strcmp(slashes->components[0].path, "/") == 0);
+        path_free(slashes);
+    }
+
+    /* absolute input longer than PATH_MAX is rejected, not truncated */
+    {
+        char *huge = malloc(PATH_MAX + 64);
+        CHECK(huge != NULL);
+        if (huge)
+        {
+            huge[0] = '/';
+            memset(huge + 1, 'a', PATH_MAX + 2);
+            huge[PATH_MAX + 3] = '\0';
+            CHECK(path_resolve(huge) == NULL);
+            free(huge);
+        }
+    }
+
+    /* relative input whose length alone already exceeds PATH_MAX is rejected too */
+    {
+        char *huge_rel = malloc(PATH_MAX + 64);
+        CHECK(huge_rel != NULL);
+        if (huge_rel)
+        {
+            memset(huge_rel, 'a', PATH_MAX);
+            huge_rel[PATH_MAX] = '\0';
+            CHECK(path_resolve(huge_rel) == NULL);
+            free(huge_rel);
+        }
+    }
+
     /* relative path : resolved against the current working directory */
     CHECK(chdir("/usr/bin") == 0);
     AccessPath *rel = path_resolve("ls");
@@ -151,6 +224,31 @@ int main(void)
         CHECK(rel->count == 4);
         CHECK(strcmp(rel->components[3].path, "/usr/bin/ls") == 0);
         path_free(rel);
+    }
+
+    /* empty input and "." both resolve to the current working directory */
+    AccessPath *empty = path_resolve("");
+    CHECK(empty != NULL);
+    if (empty)
+    {
+        CHECK(strcmp(empty->components[empty->count - 1].path, "/usr/bin") == 0);
+        path_free(empty);
+    }
+    AccessPath *cur = path_resolve(".");
+    CHECK(cur != NULL);
+    if (cur)
+    {
+        CHECK(strcmp(cur->components[cur->count - 1].path, "/usr/bin") == 0);
+        path_free(cur);
+    }
+
+    /* ".." from a known cwd resolves to its parent */
+    AccessPath *parent = path_resolve("..");
+    CHECK(parent != NULL);
+    if (parent)
+    {
+        CHECK(strcmp(parent->components[parent->count - 1].path, "/usr") == 0);
+        path_free(parent);
     }
 
     /* Resolve the temp base at runtime rather than hardcoding a literal path:

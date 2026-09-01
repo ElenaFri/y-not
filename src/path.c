@@ -158,6 +158,14 @@ static void normalize_abs(char *path)
         memcpy(dst, seg, slen);
         dst += slen;
     }
+
+    /* A ".." that backtracks past a non-root segment as the last operation
+       leaves dst right after that segment's separator (e.g. "/usr/bin/.."
+       would otherwise become "/usr/" instead of "/usr"). Trim it, but never
+       past the leading '/' itself. */
+    if (dst > buf + 1 && *(dst - 1) == '/')
+        dst--;
+
     *dst = '\0';
     memcpy(path, buf, (size_t)(dst - buf + 1));
 }

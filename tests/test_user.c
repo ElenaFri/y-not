@@ -12,6 +12,9 @@ int main(void)
 
     CHECK(user_lookup("__y_not_no_such_user__") == NULL);
 
+    /* empty username : no crash, no match */
+    CHECK(user_lookup("") == NULL);
+
     /* root always exists on Linux */
     User *root = user_lookup("root");
     CHECK(root != NULL);

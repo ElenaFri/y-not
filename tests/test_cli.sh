@@ -49,6 +49,16 @@ expect_exit "denied path exits 1" 1 "$BIN" "$USER_NAME" read /var/__y_not_no_suc
 expect_contains "denied path explains why" "no such file or directory" \
     "$BIN" "$USER_NAME" read /var/__y_not_no_such_path__
 
+# A pathologically long path argument must be rejected cleanly, not crash
+long_path="/"
+i=0
+while [ "$i" -lt 600 ]; do
+    long_path="${long_path}aaaaaaa/"
+    i=$((i + 1))
+done
+expect_exit "path longer than PATH_MAX is rejected, not a crash" 1 "$BIN" "$USER_NAME" read "$long_path"
+
+
 echo
 echo "$((RUN - FAIL))/$RUN passed"
 [ "$FAIL" -eq 0 ]
