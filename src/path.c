@@ -15,19 +15,53 @@
 static void free_component(PathComponent *c)
 {
     free(c->path);
+    free(c->symlink_target);
     if (c->acl)
         acl_free(c->acl);
 }
 
+static char *read_symlink_target(const char *path)
+{
+    char buf[PATH_MAX];
+    ssize_t n = readlink(path, buf, sizeof(buf) - 1);
+    if (n < 0)
+        return NULL;
+    buf[n] = '\0';
+    return strdup(buf);
+}
+
 static void inspect_component(PathComponent *c)
 {
-    if (stat(c->path, &c->st) == -1)
+    struct stat lst;
+    if (lstat(c->path, &lst) == -1)
     {
         c->denial_reason = (errno == ENOENT || errno == ENOTDIR)
                                ? REASON_NOT_FOUND
                                : REASON_NOT_TRAVERSABLE;
         return;
     }
+
+    if (S_ISLNK(lst.st_mode))
+    {
+        c->is_symlink = true;
+        c->symlink_target = read_symlink_target(c->path);
+    }
+
+    /* Follow the symlink (if any) to get the info permission checks need;
+       the kernel does the same when traversing or opening a path. */
+    if (stat(c->path, &c->st) == -1)
+    {
+        if (errno == ELOOP)
+            c->denial_reason = REASON_SYMLINK_LOOP;
+        else if (c->is_symlink && (errno == ENOENT || errno == ENOTDIR))
+            c->denial_reason = REASON_BROKEN_SYMLINK;
+        else
+            c->denial_reason = (errno == ENOENT || errno == ENOTDIR)
+                                   ? REASON_NOT_FOUND
+                                   : REASON_NOT_TRAVERSABLE;
+        return;
+    }
+
     if (acl_extended_file(c->path) == 1)
         c->acl = acl_get_file(c->path, ACL_TYPE_ACCESS);
 }

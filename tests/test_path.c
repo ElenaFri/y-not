@@ -53,6 +53,18 @@ int main(void)
         path_free(ls);
     }
 
+    /* special file : /dev/null is guaranteed to exist on any Linux system */
+    AccessPath *devnull = path_resolve("/dev/null");
+    CHECK(devnull != NULL);
+    if (devnull)
+    {
+        PathComponent *last = &devnull->components[devnull->count - 1];
+        CHECK(last->denial_reason == REASON_NONE);
+        CHECK(S_ISCHR(last->st.st_mode));
+        CHECK(!last->is_symlink);
+        path_free(devnull);
+    }
+
     /* non-existent path : last component marked NOT_FOUND */
     AccessPath *nope = path_resolve("/var/__y_not_no_such_path__");
     CHECK(nope != NULL);
@@ -161,6 +173,69 @@ int main(void)
         }
         unlink(path_acl);
     }
+
+    char path_target[sizeof(tmpdir) + 16];
+    snprintf(path_target, sizeof(path_target), "%s/target", tmpdir);
+    char path_link[sizeof(tmpdir) + 16];
+    snprintf(path_link, sizeof(path_link), "%s/link", tmpdir);
+
+    /* symlink to an existing target : resolved, is_symlink set, target recorded */
+    int fd_target = open(path_target, O_CREAT | O_EXCL | O_WRONLY, 0600);
+    CHECK(fd_target != -1);
+    if (fd_target != -1)
+    {
+        close(fd_target);
+        CHECK(symlink(path_target, path_link) == 0);
+
+        AccessPath *link = path_resolve(path_link);
+        CHECK(link != NULL);
+        if (link)
+        {
+            PathComponent *last = &link->components[link->count - 1];
+            CHECK(last->denial_reason == REASON_NONE);
+            CHECK(last->is_symlink);
+            CHECK(last->symlink_target != NULL && strcmp(last->symlink_target, path_target) == 0);
+            CHECK(S_ISREG(last->st.st_mode)); /* stat() followed the link */
+            path_free(link);
+        }
+        unlink(path_link);
+        unlink(path_target);
+    }
+
+    char path_broken[sizeof(tmpdir) + 16];
+    snprintf(path_broken, sizeof(path_broken), "%s/broken", tmpdir);
+
+    /* symlink to a non-existent target : REASON_BROKEN_SYMLINK */
+    CHECK(symlink("/y_not_no_such_target_xyz", path_broken) == 0);
+    AccessPath *broken = path_resolve(path_broken);
+    CHECK(broken != NULL);
+    if (broken)
+    {
+        PathComponent *last = &broken->components[broken->count - 1];
+        CHECK(last->is_symlink);
+        CHECK(last->denial_reason == REASON_BROKEN_SYMLINK);
+        path_free(broken);
+    }
+    unlink(path_broken);
+
+    char path_loop_a[sizeof(tmpdir) + 16], path_loop_b[sizeof(tmpdir) + 16];
+    snprintf(path_loop_a, sizeof(path_loop_a), "%s/loop_a", tmpdir);
+    snprintf(path_loop_b, sizeof(path_loop_b), "%s/loop_b", tmpdir);
+
+    /* two symlinks pointing at each other : REASON_SYMLINK_LOOP */
+    CHECK(symlink(path_loop_b, path_loop_a) == 0);
+    CHECK(symlink(path_loop_a, path_loop_b) == 0);
+    AccessPath *loop = path_resolve(path_loop_a);
+    CHECK(loop != NULL);
+    if (loop)
+    {
+        PathComponent *last = &loop->components[loop->count - 1];
+        CHECK(last->denial_reason == REASON_SYMLINK_LOOP);
+        path_free(loop);
+    }
+    unlink(path_loop_a);
+    unlink(path_loop_b);
+
     rmdir(tmpdir);
 
     return TEST_SUMMARY();

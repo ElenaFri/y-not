@@ -1,9 +1,14 @@
 #include "output.h"
 
 #include <grp.h>
+#include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
+
+#ifndef PATH_MAX
+#define PATH_MAX 4096
+#endif
 
 static char file_type_char(mode_t mode)
 {
@@ -62,6 +67,16 @@ static const char *basename_of(const char *path)
 {
     const char *p = strrchr(path, '/');
     return (p && *(p + 1)) ? p + 1 : path;
+}
+
+/* "name" or "name -> target" for symlink components. */
+static void display_name(const PathComponent *comp, bool is_root, char *buf, size_t size)
+{
+    const char *name = is_root ? "/" : basename_of(comp->path);
+    if (comp->is_symlink && comp->symlink_target)
+        snprintf(buf, size, "%s -> %s", name, comp->symlink_target);
+    else
+        snprintf(buf, size, "%s", name);
 }
 
 static const char *op_name(AccessOperation op)
@@ -124,6 +139,12 @@ static void print_reason(const AccessResult *result, AccessOperation op)
     case REASON_NOT_FOUND:
         printf("  reason      no such file or directory\n");
         break;
+    case REASON_BROKEN_SYMLINK:
+        printf("  reason      this is a symlink pointing to a target that does not exist\n");
+        break;
+    case REASON_SYMLINK_LOOP:
+        printf("  reason      too many levels of symbolic links (possible loop)\n");
+        break;
     default:
         printf("  reason      unknown\n");
     }
@@ -140,7 +161,9 @@ static void render_tree(const AccessResult *result, AccessOperation op)
     size_t col = 0;
     for (size_t i = 0; i < ap->count; i++)
     {
-        size_t w = (i > 0 ? (i - 1) * 4 + 4 : 0) + strlen(i == 0 ? "/" : basename_of(ap->components[i].path));
+        char dn[PATH_MAX];
+        display_name(&ap->components[i], i == 0, dn, sizeof(dn));
+        size_t w = (i > 0 ? (i - 1) * 4 + 4 : 0) + strlen(dn);
         if (w > col)
             col = w;
     }
@@ -153,9 +176,10 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         bool is_last = (i == ap->count - 1);
         bool is_block = (result->allowed == false) && result->blocked_path && strcmp(comp->path, result->blocked_path) == 0;
 
-        const char *name = (i == 0) ? "/" : basename_of(comp->path);
+        char dn[PATH_MAX];
+        display_name(comp, i == 0, dn, sizeof(dn));
 
-        char label[256];
+        char label[PATH_MAX + 16];
         if (i == 0)
         {
             label[0] = '/';
@@ -167,7 +191,7 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             for (size_t j = 0; j < (i - 1) * 4; j++)
                 label[off++] = ' ';
             snprintf(label + off, sizeof(label) - off,
-                     "\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 %s", name);
+                     "\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 %s", dn);
         }
 
         /* printf "%-*s" counts bytes; the tree connector is 10 bytes but 4 cols.
@@ -184,10 +208,15 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             past_block = true;
 
         /* stat(2) failed: st fields are uninitialized (zeroed by calloc) */
-        bool stat_failed = (comp->denial_reason == REASON_NOT_FOUND || comp->denial_reason == REASON_NOT_TRAVERSABLE);
+        bool stat_failed = (comp->denial_reason == REASON_NOT_FOUND || comp->denial_reason == REASON_NOT_TRAVERSABLE || comp->denial_reason == REASON_BROKEN_SYMLINK || comp->denial_reason == REASON_SYMLINK_LOOP);
         if (stat_failed)
         {
-            printf("(not found)\n");
+            const char *msg = "(not found)";
+            if (comp->denial_reason == REASON_BROKEN_SYMLINK)
+                msg = "(broken symlink)";
+            else if (comp->denial_reason == REASON_SYMLINK_LOOP)
+                msg = "(symlink loop)";
+            printf("%s\n", msg);
             continue;
         }
 

@@ -22,6 +22,8 @@ typedef enum
     REASON_ACL_DENIED, /* ACL entry exists but denies this operation */
     REASON_NOT_TRAVERSABLE,
     REASON_NOT_FOUND,
+    REASON_BROKEN_SYMLINK, /* symlink whose target does not exist */
+    REASON_SYMLINK_LOOP,   /* too many levels of symbolic links */
 } AccessReason;
 
 typedef struct
