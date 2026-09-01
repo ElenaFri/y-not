@@ -77,6 +77,41 @@ int main(void)
         path_free(nope);
     }
 
+    /* a directory with no execute bit cannot even be stat()'d into : the
+       process itself (not just the simulated "user") gets EACCES from the
+       kernel. root is exempt from this check, so skip when running as root. */
+    if (geteuid() != 0)
+    {
+        const char *base0 = getenv("TMPDIR");
+        if (!base0 || !*base0)
+            base0 = P_tmpdir;
+        char blocked_dir[256];
+        snprintf(blocked_dir, sizeof(blocked_dir), "%s/y_not_test_noexec_XXXXXX", base0);
+        CHECK(mkdtemp(blocked_dir) != NULL);
+
+        char inner_file[300];
+        snprintf(inner_file, sizeof(inner_file), "%s/file", blocked_dir);
+        int fd = open(inner_file, O_CREAT | O_EXCL | O_WRONLY, 0600);
+        CHECK(fd != -1);
+        if (fd != -1)
+            close(fd);
+
+        CHECK(chmod(blocked_dir, 0000) == 0);
+
+        AccessPath *blocked = path_resolve(inner_file);
+        CHECK(blocked != NULL);
+        if (blocked)
+        {
+            PathComponent *last = &blocked->components[blocked->count - 1];
+            CHECK(last->denial_reason == REASON_NOT_TRAVERSABLE);
+            path_free(blocked);
+        }
+
+        chmod(blocked_dir, 0700); /* restore so cleanup can remove it */
+        unlink(inner_file);
+        rmdir(blocked_dir);
+    }
+
     /* normalization: . removed */
     AccessPath *dot = path_resolve("/usr/./bin/ls");
     CHECK(dot != NULL);

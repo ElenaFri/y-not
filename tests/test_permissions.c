@@ -143,6 +143,30 @@ int main(void)
         acl_free(acl4);
     }
 
+    /* ACL_GROUP: matching multiple named groups is a logical OR, not an AND -
+       a single granting entry is enough even if another one denies. */
+    gid_t dave_g[] = {2001, 2002};
+    User acl_dave = make_user(4000, 4000, dave_g, 2);
+
+    acl_t acl6 = acl_from_text("user::rw-,group::---,group:2001:---,group:2002:r--,mask::r--,other::---");
+    CHECK(acl6 != NULL);
+    if (acl6)
+    {
+        r = evaluate_permissions(&acl_dave, &st_acl, ACCESS_READ, acl6);
+        CHECK(r.allowed && r.reason == REASON_NONE);
+        acl_free(acl6);
+    }
+
+    /* ...but if every matching group entry denies, the result is still denied. */
+    acl_t acl7 = acl_from_text("user::rw-,group::---,group:2001:---,group:2002:---,mask::r--,other::---");
+    CHECK(acl7 != NULL);
+    if (acl7)
+    {
+        r = evaluate_permissions(&acl_dave, &st_acl, ACCESS_READ, acl7);
+        CHECK(!r.allowed && r.reason == REASON_ACL_DENIED);
+        acl_free(acl7);
+    }
+
     /* root always bypasses ACLs, same as plain mode bits */
     acl_t acl5 = acl_from_text("user::---,group::---,mask::---,other::---");
     CHECK(acl5 != NULL);

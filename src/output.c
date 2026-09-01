@@ -179,25 +179,25 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         char dn[PATH_MAX];
         display_name(comp, i == 0, dn, sizeof(dn));
 
-        char label[PATH_MAX + 16];
         if (i == 0)
         {
-            label[0] = '/';
-            label[1] = '\0';
+            printf("  %-*s", (int)col, "/");
         }
         else
         {
-            size_t off = 0;
-            for (size_t j = 0; j < (i - 1) * 4; j++)
-                label[off++] = ' ';
-            snprintf(label + off, sizeof(label) - off,
+            /* Indentation is printed via printf's own width padding, not a
+               fixed buffer: a deeply nested path must never risk a stack
+               overflow just to render prettily. */
+            size_t indent = (i - 1) * 4;
+            char connector[PATH_MAX + 16];
+            snprintf(connector, sizeof(connector),
                      "\xe2\x94\x94\xe2\x94\x80\xe2\x94\x80 %s", dn);
-        }
 
-        /* printf "%-*s" counts bytes; the tree connector is 10 bytes but 4 cols.
-           Adding 6 to the width keeps every row visually aligned. */
-        int pw = (int)(col + (i > 0 ? 6u : 0u));
-        printf("  %-*s", pw, label);
+            /* the tree connector is 10 UTF-8 bytes but 4 display cols;
+               add 6 so the printed width still lines up visually. */
+            int connector_width = (int)(col - indent) + 6;
+            printf("  %*s%-*s", (int)indent, "", connector_width, connector);
+        }
 
         if (past_block)
         {
