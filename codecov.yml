@@ -14,3 +14,8 @@ coverage:
 
 comment:
   layout: "condensed_header, condensed_files, condensed_footer"
+
+# tests/ measures src/, it isn't itself something to measure. include/*.h
+# never appears here anyway (declarations only, no executable lines).
+ignore:
+  - "tests"

@@ -104,6 +104,8 @@ coverage: clean $(TESTBINS)
 	@./$(TESTDIR)/test_cli.sh >/dev/null 2>&1 || true
 	lcov --capture --directory $(BUILDDIR) --output-file $(BUILDDIR)/coverage.info \
 	    --rc branch_coverage=1 >/dev/null
+	lcov --remove $(BUILDDIR)/coverage.info '$(TESTDIR)/*' --output-file $(BUILDDIR)/coverage.info \
+	    --rc branch_coverage=1 >/dev/null
 	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/coverage-html \
 	    --rc branch_coverage=1 >/dev/null
 	lcov --list $(BUILDDIR)/coverage.info --rc branch_coverage=1
