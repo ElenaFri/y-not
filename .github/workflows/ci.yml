@@ -1,0 +1,40 @@
+name: CI
+
+on:
+    push:
+        branches: [main]
+    pull_request:
+        branches: [main]
+
+jobs:
+    test:
+        runs-on: ubuntu-latest
+        container:
+            image: debian:trixie-slim
+        steps:
+            - name: Install dependencies
+              run: |
+                  apt-get update
+                  apt-get install -y --no-install-recommends \
+                      build-essential libacl1-dev libcap-dev libselinux1-dev lcov ca-certificates git
+
+            - uses: actions/checkout@v4
+
+            - name: Build (release)
+              run: make
+
+            - name: Build (debug, ASan/UBSan)
+              run: make debug
+
+            - name: Run tests
+              run: make check
+
+            - name: Generate coverage report
+              run: make coverage
+
+            - name: Upload coverage to Codecov
+              uses: codecov/codecov-action@v4
+              with:
+                  files: build/coverage.info
+                  token: ${{ secrets.CODECOV_TOKEN }}
+                  fail_ci_if_error: false

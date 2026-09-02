@@ -1,5 +1,8 @@
 # y-not
 
+[![CI](https://github.com/ElenaFri/y-not/actions/workflows/ci.yml/badge.svg)](https://github.com/ElenaFri/y-not/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/ElenaFri/y-not/graph/badge.svg)](https://codecov.io/gh/ElenaFri/y-not)
+
 A small Linux CLI that explains why a user can or cannot access a file or directory.
 
 Instead of piecing together information from `ls`, `namei`, `id`, `getfacl` and other similar tools, `y-not` traces the access path and identifies what is blocking access.
@@ -43,16 +46,6 @@ src/
 The key invariant: `check_access()` builds a complete `AccessResult`(with
 `blocked_path` and `reason`) before any output is produced. Tests can
 therefore assert on the result directly, without parsing terminal output.
-
-### Roadmap
-
-| Version | Scope |
-| --------- | ------- |
-| v0.1 | owner / group / other, supplementary groups, path traversal |
-| v0.2 | POSIX ACLs |
-| v0.3 | symlinks, special files |
-| v0.4 | capabilities (CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH bypass, file capabilities display) |
-| v0.5 | SELinux (status + per-file context, informational) and AppArmor (status + profile count, informational) |
 
 ## Goals
 
