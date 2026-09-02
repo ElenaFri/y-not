@@ -1,0 +1,16 @@
+coverage:
+  status:
+    project:
+      default:
+        target: auto
+        threshold: 2%
+    patch:
+      default:
+        # Some legitimate branches (OOM handling, TOCTOU races, root-only
+        # code paths) cannot be exercised deterministically in CI - see the
+        # README's "Build & test" section. Report patch coverage without
+        # blocking the pipeline on every single diff.
+        informational: true
+
+comment:
+  layout: "condensed_header, condensed_files, condensed_footer"
