@@ -1,0 +1,13 @@
+Package: y-not
+Version: @VERSION@
+Section: utils
+Priority: optional
+Architecture: @ARCH@
+Depends: libc6, libacl1, libcap2, libselinux1
+Maintainer: Elena Frison <e_gavrilova_frison@zohomail.eu>
+Homepage: https://github.com/ElenaFri/y-not
+Description: explain why a user can or cannot access a file or directory
+ y-not traces the access path to a file and reports whether a given user
+ can read, write, or execute it, and if not, which component of the path
+ blocks access and why (owner/group/other permissions, supplementary
+ groups, POSIX ACLs, Linux capabilities, symlinks and special files).

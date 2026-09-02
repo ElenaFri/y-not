@@ -1,0 +1,67 @@
+.TH Y-NOT 1 "2026-09-02" "y-not 0.5.0" "User Commands"
+.SH NAME
+y-not \- explain why a user can or cannot access a file or directory
+.SH SYNOPSIS
+.B y-not
+.I USER OPERATION PATH
+.br
+.B y-not
+.RB { \-\-help | \-\-version }
+.SH DESCRIPTION
+.B y-not
+traces the access path to
+.I PATH
+and reports whether
+.I USER
+can perform
+.I OPERATION
+on it, and if not, which component of the path blocks access and why.
+
+Instead of piecing together information from
+.BR ls (1),
+.BR namei (1),
+.BR id (1),
+and
+.BR getfacl (1),
+.B y-not
+evaluates owner/group/other permissions, supplementary groups, POSIX ACLs,
+Linux capabilities, symlinks and special files, and reports the result in a
+single, human-readable explanation.
+.SH OPERATION
+.TP
+.B read\fR, \fBr
+Can the user read the file, or list the directory?
+.TP
+.B write\fR, \fBw
+Can the user write to the file, or create/remove entries in the directory?
+.TP
+.B execute\fR, \fBx
+Can the user execute the file, or traverse into the directory?
+.SH EXIT STATUS
+.TP
+.B 0
+Access is allowed.
+.TP
+.B 1
+Access is denied, or an error occurred (unknown user, invalid path, bad
+arguments).
+.SH EXAMPLES
+.TP
+Check whether alice can read a file:
+.B y-not alice read /srv/project/report.pdf
+.TP
+Same, using the short form:
+.B y-not alice r /srv/project/report.pdf
+.SH LIMITATIONS
+.B y-not
+explains discretionary access control (Unix permissions, ACLs,
+capabilities) precisely. SELinux and AppArmor status are reported for
+context, but neither changes the allow/deny verdict: SELinux policy
+evaluation and AppArmor's per-program confinement do not fit into a
+single user/operation/path query.
+.SH SEE ALSO
+.BR stat (1),
+.BR getfacl (1),
+.BR namei (1),
+.BR capabilities (7),
+.BR capability.conf (5)

@@ -56,3 +56,23 @@ therefore assert on the result directly, without parsing terminal output.
 - Support POSIX ACLs
 - Provide clear, human-readable output
 - Stay small, fast and dependency-light
+
+## Known limitations
+
+- **SELinux/AppArmor are informational only.** Neither changes the allow/deny
+  verdict. AppArmor confines programs, not users, so a per-file check does not
+  fit the `USER OPERATION PATH` model.
+- **ACL mask vs. mode bits.** When a file has an extended ACL, the group bits
+  reported by `stat()` mirror the ACL mask, not the owning group's real
+  permissions. The `GROUP_MISSING` fallback reason uses those bits as a
+  heuristic, which can be misleading in rare ACL configurations.
+- **`getgrouplist()` growth loop is untested.** Simulating a user in more than
+  64 groups would require a real system account; not exercised in CI.
+- **Allocation-failure paths are untested.** `malloc`/`strdup`/`realloc`
+  failures throughout the codebase are handled but not exercised, since
+  reliably simulating OOM without a fragile allocator wrapper isn't practical.
+  A `getcwd()` failure and a symlink-removed-mid-`lstat()`/`stat()` race in
+  `path.c` fall in the same category.
+- **CI runs as root** (see `.github/workflows/ci.yml`), which flips which
+  conditional tests execute compared to a typical non-root development
+  machine. Codecov's reported percentage may differ slightly from a local run.

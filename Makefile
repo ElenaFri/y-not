@@ -1,5 +1,6 @@
 CC      ?= cc
 TARGET  := y-not
+VERSION := 0.5.0
 
 SRCDIR   := src
 INCDIR   := include
@@ -10,7 +11,8 @@ OBJS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
 CFLAGS_BASE    := -std=c11 -Wall -Wextra -Wpedantic -I$(INCDIR) \
-                  -D_DEFAULT_SOURCE -fstack-protector-strong -MMD -MP
+                  -D_DEFAULT_SOURCE -DY_NOT_VERSION=\"$(VERSION)\" \
+                  -fstack-protector-strong -MMD -MP
 CFLAGS_RELEASE := $(CFLAGS_BASE) -O2 -DNDEBUG
 CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
@@ -23,12 +25,13 @@ CFLAGS ?= $(CFLAGS_RELEASE)
 
 PREFIX ?= /usr/local
 BINDIR := $(DESTDIR)$(PREFIX)/bin
+MANDIR := $(DESTDIR)$(PREFIX)/share/man/man1
 
 TESTDIR  := tests
 TESTS    := $(wildcard $(TESTDIR)/test_*.c)
 TESTBINS := $(patsubst $(TESTDIR)/%.c,$(BUILDDIR)/%,$(TESTS))
 
-.PHONY: all debug check clean install
+.PHONY: all debug check clean install uninstall
 
 all: $(TARGET)
 
@@ -42,6 +45,22 @@ $(TARGET): $(OBJS)
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+# main.c embeds VERSION via -DY_NOT_VERSION, but that's a command-line
+# macro, not a file: make's timestamp-based tracking can't see it change,
+# so main.o could go stale (keep an old version string) if VERSION is
+# bumped without a `make clean` first. FORCE makes the check below run on
+# every invocation; it only touches (and thus re-triggers) .version's own
+# mtime when the content actually changed, so main.o only rebuilds then.
+.PHONY: FORCE
+FORCE:
+
+$(BUILDDIR)/main.o: $(BUILDDIR)/.version
+
+$(BUILDDIR)/.version: FORCE | $(BUILDDIR)
+	@if [ ! -f $@ ] || [ "$$(cat $@ 2>/dev/null)" != "$(VERSION)" ]; then \
+	    echo "$(VERSION)" > $@; \
+	fi
+
 $(BUILDDIR):
 	mkdir -p $@
 
@@ -50,6 +69,10 @@ $(BUILDDIR):
 
 install: all
 	install -Dm755 $(TARGET) $(BINDIR)/$(TARGET)
+	install -Dm644 man/y-not.1 $(MANDIR)/y-not.1
+
+uninstall:
+	$(RM) $(BINDIR)/$(TARGET) $(MANDIR)/y-not.1
 
 # Tests are always built with ASan/UBSan, regardless of the main profile
 check: $(TARGET) $(TESTBINS)
@@ -130,3 +153,26 @@ valgrind: $(TARGET)
 	    [ $$? -eq 99 ] && fail=$$((fail+1)); \
 	done; \
 	[ $$fail -eq 0 ]
+
+# Debian package: stage a normal `make install` under a temp root, generate
+# DEBIAN/control from the template (version + architecture substituted),
+# then let dpkg-deb do the rest. Built and published on major-version tags
+# only (see .github/workflows/release.yml).
+DEBARCH := $(shell dpkg --print-architecture 2>/dev/null || echo amd64)
+DEBROOT := $(BUILDDIR)/deb-root
+DEBFILE := $(BUILDDIR)/y-not_$(VERSION)_$(DEBARCH).deb
+
+.PHONY: deb
+deb: all
+	$(RM) -r $(DEBROOT)
+	$(MAKE) install DESTDIR=$(DEBROOT) PREFIX=/usr
+	strip --strip-unneeded $(DEBROOT)/usr/bin/$(TARGET)
+	gzip -9n $(DEBROOT)/usr/share/man/man1/y-not.1
+	install -Dm644 packaging/debian/copyright $(DEBROOT)/usr/share/doc/$(TARGET)/copyright
+	gzip -9n -c CHANGELOG.md > $(BUILDDIR)/changelog.gz
+	install -Dm644 $(BUILDDIR)/changelog.gz $(DEBROOT)/usr/share/doc/$(TARGET)/changelog.gz
+	mkdir -p $(DEBROOT)/DEBIAN
+	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEBARCH)/' \
+	    packaging/debian/control.in > $(DEBROOT)/DEBIAN/control
+	dpkg-deb --build --root-owner-group $(DEBROOT) $(DEBFILE)
+	@echo "Built $(DEBFILE)"

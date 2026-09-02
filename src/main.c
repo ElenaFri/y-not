@@ -5,10 +5,25 @@
 #include <stdlib.h>
 #include <string.h>
 
-static void usage(const char *prog)
+#ifndef Y_NOT_VERSION
+#define Y_NOT_VERSION "0.0.0-dev"
+#endif
+
+static void usage(FILE *out, const char *prog)
 {
-    fprintf(stderr, "Usage: %s USER OPERATION PATH\n", prog);
-    fprintf(stderr, "  OPERATION: read|r  write|w  execute|x\n");
+    fprintf(out, "Usage: %s USER OPERATION PATH\n", prog);
+    fprintf(out, "       %s --help | --version\n", prog);
+    fprintf(out, "  OPERATION: read|r  write|w  execute|x\n");
+}
+
+static void help(const char *prog)
+{
+    printf("y-not - explain why a user can or cannot access a file or directory\n\n");
+    usage(stdout, prog);
+    printf("\n");
+    printf("  USER       an existing Unix user name\n");
+    printf("  PATH       an absolute or relative filesystem path\n\n");
+    printf("Exit status: 0 if access is allowed, 1 if denied or an error occurred.\n");
 }
 
 static AccessOperation parse_operation(const char *s)
@@ -25,9 +40,20 @@ static AccessOperation parse_operation(const char *s)
 
 int main(int argc, char *argv[])
 {
+    if (argc == 2 && (strcmp(argv[1], "--help") == 0 || strcmp(argv[1], "-h") == 0))
+    {
+        help(argv[0]);
+        return EXIT_SUCCESS;
+    }
+    if (argc == 2 && strcmp(argv[1], "--version") == 0)
+    {
+        printf("y-not %s\n", Y_NOT_VERSION);
+        return EXIT_SUCCESS;
+    }
+
     if (argc != 4)
     {
-        usage(argv[0]);
+        usage(stderr, argv[0]);
         return EXIT_FAILURE;
     }
 
