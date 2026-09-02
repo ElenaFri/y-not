@@ -2,6 +2,11 @@
 build/
 y-not
 
+# Coverage artifacts (make coverage)
+*.gcov
+*.gcda
+*.gcno
+
 # Prerequisites
 *.d
 

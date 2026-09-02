@@ -3,6 +3,7 @@
 #include "testlib.h"
 
 #include <pwd.h>
+#include <string.h>
 #include <unistd.h>
 
 int main(void)
@@ -39,6 +40,28 @@ int main(void)
     CHECK(r.reason == REASON_NOT_FOUND);
     CHECK(r.blocked_path != NULL);
     access_result_free(&r);
+
+    /* path_resolve() itself fails (NULL input) : denied, no access_path */
+    r = check_access(me, NULL, ACCESS_READ);
+    CHECK(!r.allowed);
+    CHECK(r.reason == REASON_NOT_FOUND);
+    CHECK(r.access_path == NULL);
+    access_result_free(&r);
+
+    /* a real permission denial (not a stat failure): /etc/passwd is
+       world-readable but not world-writable, and a regular user is
+       neither its owner nor in its group. Skip if running as root. */
+    if (geteuid() != 0)
+    {
+        r = check_access(me, "/etc/passwd", ACCESS_WRITE);
+        CHECK(!r.allowed);
+        CHECK(r.reason != REASON_NONE && r.reason != REASON_NOT_FOUND);
+        CHECK(r.blocked_path != NULL && strcmp(r.blocked_path, "/etc/passwd") == 0);
+        access_result_free(&r);
+    }
+
+    /* access_result_free(NULL) must be silent */
+    access_result_free(NULL);
 
     user_free(me);
     return TEST_SUMMARY();

@@ -91,3 +91,19 @@ $(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
 
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
+
+# Code coverage: rebuild every test binary with gcov instrumentation, run
+# them all, then summarize with lcov. Needs gcov/lcov/genhtml.
+CFLAGS_COVERAGE := $(CFLAGS_BASE) -O0 -g --coverage
+
+.PHONY: coverage
+coverage: CFLAGS_DEBUG := $(CFLAGS_COVERAGE)
+coverage: LDLIBS := $(LDLIBS) --coverage
+coverage: clean $(TESTBINS)
+	@for t in $(TESTBINS); do ./$$t >/dev/null 2>&1 || true; done
+	@./$(TESTDIR)/test_cli.sh >/dev/null 2>&1 || true
+	lcov --capture --directory $(BUILDDIR) --output-file $(BUILDDIR)/coverage.info \
+	    --rc branch_coverage=1 >/dev/null
+	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/coverage-html \
+	    --rc branch_coverage=1 >/dev/null
+	lcov --list $(BUILDDIR)/coverage.info --rc branch_coverage=1

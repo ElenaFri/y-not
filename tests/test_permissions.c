@@ -152,6 +152,18 @@ int main(void)
         acl_free(acl4);
     }
 
+    /* ACL_GROUP_OBJ: a member of the file's own owning group (gid 1002),
+       granted directly (not through a named group entry). */
+    User acl_owning_group = make_user(5000, 1002, NULL, 0);
+    acl_t acl4b = acl_from_text("user::rw-,group::r--,mask::r--,other::---");
+    CHECK(acl4b != NULL);
+    if (acl4b)
+    {
+        r = evaluate_permissions(&acl_owning_group, &st_acl, ACCESS_READ, acl4b);
+        CHECK(r.allowed && r.reason == REASON_NONE);
+        acl_free(acl4b);
+    }
+
     /* ACL_GROUP: matching multiple named groups is a logical OR, not an AND -
        a single granting entry is enough even if another one denies. */
     gid_t dave_g[] = {2001, 2002};
