@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/capability.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -305,6 +306,58 @@ int main(void)
             }
         }
         unlink(path_acl);
+    }
+
+    char path_nocap[sizeof(tmpdir) + 16];
+    snprintf(path_nocap, sizeof(path_nocap), "%s/nocap", tmpdir);
+
+    /* no file capability set : component.file_caps stays NULL */
+    int fd_nocap = open(path_nocap, O_CREAT | O_EXCL | O_WRONLY, 0600);
+    CHECK(fd_nocap != -1);
+    if (fd_nocap != -1)
+    {
+        close(fd_nocap);
+        AccessPath *nocap = path_resolve(path_nocap);
+        CHECK(nocap != NULL);
+        if (nocap)
+        {
+            CHECK(nocap->components[nocap->count - 1].file_caps == NULL);
+            path_free(nocap);
+        }
+        unlink(path_nocap);
+    }
+
+    /* setting a file capability requires CAP_SETFCAP (root); skip otherwise */
+    if (geteuid() == 0)
+    {
+        char path_cap[sizeof(tmpdir) + 16];
+        snprintf(path_cap, sizeof(path_cap), "%s/withcap", tmpdir);
+
+        int fd_cap = open(path_cap, O_CREAT | O_EXCL | O_WRONLY, 0755);
+        CHECK(fd_cap != -1);
+        if (fd_cap != -1)
+        {
+            close(fd_cap);
+            cap_t new_cap = cap_from_text("cap_net_bind_service=ep");
+            CHECK(new_cap != NULL);
+            if (new_cap)
+            {
+                CHECK(cap_set_file(path_cap, new_cap) == 0);
+                cap_free(new_cap);
+
+                AccessPath *withcap = path_resolve(path_cap);
+                CHECK(withcap != NULL);
+                if (withcap)
+                {
+                    PathComponent *last = &withcap->components[withcap->count - 1];
+                    CHECK(last->file_caps != NULL);
+                    if (last->file_caps)
+                        CHECK(strstr(last->file_caps, "cap_net_bind_service") != NULL);
+                    path_free(withcap);
+                }
+            }
+            unlink(path_cap);
+        }
     }
 
     char path_target[sizeof(tmpdir) + 16];

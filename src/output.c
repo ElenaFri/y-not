@@ -225,11 +225,14 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         const char *owner = uid_to_name(comp->st.st_uid, ubuf, sizeof(ubuf));
         const char *grp = gid_to_name(comp->st.st_gid, gbuf, sizeof(gbuf));
 
-        printf("%c%s  %s:%s   %-7s  %s\n",
+        printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
                owner, grp,
                is_last ? op_name(op) : "enter",
                is_block ? "BLOCKED" : "ok");
+        if (comp->file_caps)
+            printf("  (caps: %s)", comp->file_caps);
+        putchar('\n');
     }
 }
 

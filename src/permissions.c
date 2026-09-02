@@ -1,6 +1,7 @@
 #include "permissions.h"
 
 #include "acl_eval.h"
+#include "capabilities.h"
 #include "mode_bits.h"
 
 PermissionResult evaluate_permissions(const User *user,
@@ -16,6 +17,22 @@ PermissionResult evaluate_permissions(const User *user,
         bool ok = op != ACCESS_EXECUTE || (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
         return (PermissionResult){.allowed = ok,
                                   .reason = ok ? REASON_NONE : REASON_OWNER_DENIED};
+    }
+
+    /* CAP_DAC_OVERRIDE (via pam_cap): bypasses everything, same as root. */
+    if (user_has_dac_override(user))
+    {
+        bool ok = op != ACCESS_EXECUTE || (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
+        return (PermissionResult){.allowed = ok,
+                                  .reason = ok ? REASON_NONE : REASON_OWNER_DENIED};
+    }
+
+    /* CAP_DAC_READ_SEARCH: bypasses read and directory traversal only -
+       write, and execute on a regular file, still go through normal checks. */
+    if (user_has_dac_read_search(user))
+    {
+        if (op == ACCESS_READ || (op == ACCESS_EXECUTE && S_ISDIR(mode)))
+            return (PermissionResult){.allowed = true, .reason = REASON_NONE};
     }
 
     if (acl)

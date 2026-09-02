@@ -16,7 +16,7 @@ CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
 LDFLAGS       :=
 LDFLAGS_DEBUG := -fsanitize=address,undefined
-LDLIBS        := -lacl
+LDLIBS        := -lacl -lcap
 
 # Honour CFLAGS from environment, default to release profile
 CFLAGS ?= $(CFLAGS_RELEASE)
@@ -61,15 +61,22 @@ check: $(TARGET) $(TESTBINS)
 $(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
-# test_permissions exercises the ACL fallback too
+# test_permissions exercises the ACL fallback and DAC-capability bypass too
 $(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
-    $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c | $(BUILDDIR)
+    $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
+    $(SRCDIR)/capabilities.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
     $(SRCDIR)/access.c $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
+    $(SRCDIR)/capabilities.c \
     $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# test_capabilities exercises the capability.conf parser directly
+$(BUILDDIR)/test_capabilities: $(TESTDIR)/test_capabilities.c \
+    $(SRCDIR)/capabilities.c $(SRCDIR)/mode_bits.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 clean:

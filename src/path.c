@@ -5,6 +5,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/capability.h>
 #include <unistd.h>
 
 /* PATH_MAX may be absent on systems without a fixed path limit */
@@ -16,6 +17,7 @@ static void free_component(PathComponent *c)
 {
     free(c->path);
     free(c->symlink_target);
+    free(c->file_caps);
     if (c->acl)
         acl_free(c->acl);
 }
@@ -28,6 +30,19 @@ static char *read_symlink_target(const char *path)
         return NULL;
     buf[n] = '\0';
     return strdup(buf);
+}
+
+static char *read_file_caps(const char *path)
+{
+    cap_t cap = cap_get_file(path);
+    if (!cap)
+        return NULL;
+    char *text = cap_to_text(cap, NULL);
+    char *owned = text ? strdup(text) : NULL;
+    if (text)
+        cap_free(text);
+    cap_free(cap);
+    return owned;
 }
 
 static void inspect_component(PathComponent *c)
@@ -64,6 +79,9 @@ static void inspect_component(PathComponent *c)
 
     if (acl_extended_file(c->path) == 1)
         c->acl = acl_get_file(c->path, ACL_TYPE_ACCESS);
+
+    if (S_ISREG(c->st.st_mode))
+        c->file_caps = read_file_caps(c->path);
 }
 
 static int build_abs(const char *input, char *buf, size_t size)

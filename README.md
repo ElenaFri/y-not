@@ -27,12 +27,15 @@ The engine never knows what's on the terminal. It receives a user, an operation 
 
 ```text
 src/
-├── main.c         argument parsing, entry point
-├── user.c         resolve uid, primary gid and supplementary groups
-├── path.c         decompose path into components, stat(2) each one
-├── permissions.c  evaluate Unix mode bits against a user
-├── access.c       orchestrate the above, return the first blocking point
-└── output.c       render AccessResult as text (or JSON later)
+├── main.c          argument parsing, entry point
+├── user.c          resolve uid, primary gid and supplementary groups
+├── path.c          decompose path into components, stat(2)/lstat(2) each one
+├── mode_bits.c     shared owner/group/other bit checks and group membership
+├── permissions.c   dispatch: root/capability bypass, ACL, or plain Unix bits
+├── acl_eval.c      full POSIX ACL evaluation algorithm
+├── capabilities.c  CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH via capability.conf
+├── access.c        orchestrate the above, return the first blocking point
+└── output.c        render AccessResult as text (or JSON later)
 ```
 
 The key invariant: `check_access()` builds a complete `AccessResult`(with
@@ -46,7 +49,7 @@ therefore assert on the result directly, without parsing terminal output.
 | v0.1 | owner / group / other, supplementary groups, path traversal |
 | v0.2 | POSIX ACLs |
 | v0.3 | symlinks, special files |
-| v0.4 | capabilities |
+| v0.4 | capabilities (CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH bypass, file capabilities display) |
 | v0.5 | SELinux / AppArmor |
 
 ## Goals
