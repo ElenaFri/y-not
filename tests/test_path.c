@@ -88,11 +88,8 @@ int main(void)
        kernel. root is exempt from this check, so skip when running as root. */
     if (geteuid() != 0)
     {
-        const char *base0 = getenv("TMPDIR");
-        if (!base0 || !*base0)
-            base0 = P_tmpdir;
         char blocked_dir[256];
-        snprintf(blocked_dir, sizeof(blocked_dir), "%s/y_not_test_noexec_XXXXXX", base0);
+        snprintf(blocked_dir, sizeof(blocked_dir), "%s/y_not_test_noexec_XXXXXX", P_tmpdir);
         CHECK(mkdtemp(blocked_dir) != NULL);
 
         char inner_file[300];
@@ -252,14 +249,11 @@ int main(void)
         path_free(parent);
     }
 
-    /* Resolve the temp base at runtime rather than hardcoding a literal path:
-       avoids matching the "hardcoded /tmp" pattern static analyzers flag. */
-    const char *base = getenv("TMPDIR");
-    if (!base || !*base)
-        base = P_tmpdir;
-
+    /* Use the compile-time P_tmpdir constant rather than the TMPDIR
+       environment variable, which static analyzers flag as attacker-
+       influenceable when used to build a filesystem path. */
     char tmpdir[256];
-    snprintf(tmpdir, sizeof(tmpdir), "%s/y_not_test_XXXXXX", base);
+    snprintf(tmpdir, sizeof(tmpdir), "%s/y_not_test_XXXXXX", P_tmpdir);
     CHECK(mkdtemp(tmpdir) != NULL);
 
     char path_plain[sizeof(tmpdir) + 16];
@@ -333,7 +327,7 @@ int main(void)
         char path_cap[sizeof(tmpdir) + 16];
         snprintf(path_cap, sizeof(path_cap), "%s/withcap", tmpdir);
 
-        int fd_cap = open(path_cap, O_CREAT | O_EXCL | O_WRONLY, 0755);
+        int fd_cap = open(path_cap, O_CREAT | O_EXCL | O_WRONLY, 0700);
         CHECK(fd_cap != -1);
         if (fd_cap != -1)
         {

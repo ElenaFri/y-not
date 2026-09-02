@@ -14,15 +14,13 @@ static User make_user(uid_t uid, gid_t primary, gid_t *groups, size_t n, char *n
 }
 
 /* Writes `content` to a fresh temp file inside a private (0700) directory
-   and returns its path in `out` (caller-provided buffer). */
+   and returns its path in `out` (caller-provided buffer). Uses the
+   compile-time P_tmpdir constant, not the TMPDIR environment variable,
+   which static analyzers flag as attacker-influenceable. */
 static void write_conf(char *out, size_t out_size, const char *content)
 {
-    const char *base = getenv("TMPDIR");
-    if (!base || !*base)
-        base = P_tmpdir;
-
     char dir[200];
-    snprintf(dir, sizeof(dir), "%s/y_not_test_cap_XXXXXX", base);
+    snprintf(dir, sizeof(dir), "%s/y_not_test_cap_XXXXXX", P_tmpdir);
     CHECK(mkdtemp(dir) != NULL);
 
     snprintf(out, out_size, "%s/capability.conf", dir);
