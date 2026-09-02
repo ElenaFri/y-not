@@ -107,3 +107,24 @@ coverage: clean $(TESTBINS)
 	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/coverage-html \
 	    --rc branch_coverage=1 >/dev/null
 	lcov --list $(BUILDDIR)/coverage.info --rc branch_coverage=1
+
+# Valgrind smoke test on the real optimized release binary (not the ASan
+# debug build - ASan/LeakSanitizer already cover leak detection on every
+# `make check` run; this is a spot-check of what actually ships).
+# 99 is a dedicated exit code so a real valgrind finding is distinguishable
+# from y-not's own exit code (0 = allowed, 1 = denied, both legitimate).
+.PHONY: valgrind
+valgrind: $(TARGET)
+	@fail=0; \
+	me=$$(id -un); \
+	for args in \
+	    "$$me r /usr/bin/ls" \
+	    "$$me r /bin/sh" \
+	    "$$me r /var/__y_not_no_such_path__" \
+	    "$$me w /etc/passwd" \
+	; do \
+	    valgrind --error-exitcode=99 --leak-check=full --quiet \
+	        ./$(TARGET) $$args >/dev/null 2>&1; \
+	    [ $$? -eq 99 ] && fail=$$((fail+1)); \
+	done; \
+	[ $$fail -eq 0 ]

@@ -88,6 +88,18 @@ int main(void)
     CHECK(capability_conf_grants(path, &alice_in_root_grp, "cap_dac_override"));
     CHECK(!capability_conf_grants(path, &alice, "cap_dac_override")); /* not in that group */
 
+    /* a nonexistent group in "@group" must not match anyone */
+    write_conf(path, sizeof(path), "cap_dac_override   @y_not_no_such_group_xyz\n");
+    CHECK(!capability_conf_grants(path, &alice, "cap_dac_override"));
+
+    /* '^' (ambient) prefix still counts as granted */
+    write_conf(path, sizeof(path), "^cap_dac_override   alice\n");
+    CHECK(capability_conf_grants(path, &alice, "cap_dac_override"));
+
+    /* leading whitespace before the capability spec is tolerated */
+    write_conf(path, sizeof(path), "   cap_dac_override   alice\n");
+    CHECK(capability_conf_grants(path, &alice, "cap_dac_override"));
+
     /* the real wrappers must not crash regardless of system config */
     (void)user_has_dac_override(&alice);
     (void)user_has_dac_read_search(&alice);

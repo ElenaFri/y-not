@@ -188,6 +188,36 @@ int main(void)
         acl_free(acl7);
     }
 
+    /* mask denying EXECUTE specifically (previous tests only masked read/write) */
+    acl_t acl8 = acl_from_text("user::rw-,user:1000:rwx,group::---,mask::rw-,other::---");
+    CHECK(acl8 != NULL);
+    if (acl8)
+    {
+        r = evaluate_permissions(&acl_alice, &st_acl, ACCESS_EXECUTE, acl8);
+        CHECK(!r.allowed && r.reason == REASON_ACL_DENIED);
+        acl_free(acl8);
+    }
+
+    /* ACL_GROUP grants the raw bit, but the mask still caps it down to denied */
+    acl_t acl9 = acl_from_text("user::rw-,group::---,group:2001:rw-,mask::r--,other::---");
+    CHECK(acl9 != NULL);
+    if (acl9)
+    {
+        r = evaluate_permissions(&acl_dave, &st_acl, ACCESS_WRITE, acl9);
+        CHECK(!r.allowed && r.reason == REASON_ACL_DENIED);
+        acl_free(acl9);
+    }
+
+    /* ACL_OTHER actually granting access (previous other-path tests only denied) */
+    acl_t acl10 = acl_from_text("user::rw-,group::---,mask::r--,other::r--");
+    CHECK(acl10 != NULL);
+    if (acl10)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ, acl10);
+        CHECK(r.allowed && r.reason == REASON_NONE);
+        acl_free(acl10);
+    }
+
     /* root always bypasses ACLs, same as plain mode bits */
     acl_t acl5 = acl_from_text("user::---,group::---,mask::---,other::---");
     CHECK(acl5 != NULL);

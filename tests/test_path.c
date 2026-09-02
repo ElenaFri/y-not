@@ -83,6 +83,17 @@ int main(void)
         path_free(nope);
     }
 
+    /* a middle component that is a regular file, not a directory : ENOTDIR,
+       distinct from the plain ENOENT case above */
+    AccessPath *notdir = path_resolve("/etc/passwd/impossible");
+    CHECK(notdir != NULL);
+    if (notdir)
+    {
+        PathComponent *last = &notdir->components[notdir->count - 1];
+        CHECK(last->denial_reason == REASON_NOT_FOUND);
+        path_free(notdir);
+    }
+
     /* a directory with no execute bit cannot even be stat()'d into : the
        process itself (not just the simulated "user") gets EACCES from the
        kernel. root is exempt from this check, so skip when running as root. */
