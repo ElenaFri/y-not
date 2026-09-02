@@ -16,7 +16,7 @@ CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
 LDFLAGS       :=
 LDFLAGS_DEBUG := -fsanitize=address,undefined
-LDLIBS        := -lacl -lcap
+LDLIBS        := -lacl -lcap -lselinux
 
 # Honour CFLAGS from environment, default to release profile
 CFLAGS ?= $(CFLAGS_RELEASE)
@@ -70,13 +70,23 @@ $(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
     $(SRCDIR)/access.c $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
-    $(SRCDIR)/capabilities.c \
+    $(SRCDIR)/capabilities.c $(SRCDIR)/selinux_info.c \
     $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 # test_capabilities exercises the capability.conf parser directly
 $(BUILDDIR)/test_capabilities: $(TESTDIR)/test_capabilities.c \
     $(SRCDIR)/capabilities.c $(SRCDIR)/mode_bits.c | $(BUILDDIR)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# path.c queries SELinux for each component's context
+$(BUILDDIR)/test_path: $(TESTDIR)/test_path.c \
+    $(SRCDIR)/path.c $(SRCDIR)/selinux_info.c | $(BUILDDIR)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# output.c prints the MAC status summary
+$(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
+    $(SRCDIR)/output.c $(SRCDIR)/selinux_info.c $(SRCDIR)/apparmor_info.c | $(BUILDDIR)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 clean:

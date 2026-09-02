@@ -34,6 +34,8 @@ src/
 ├── permissions.c   dispatch: root/capability bypass, ACL, or plain Unix bits
 ├── acl_eval.c      full POSIX ACL evaluation algorithm
 ├── capabilities.c  CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH via capability.conf
+├── selinux_info.c  SELinux status and per-file context (informational)
+├── apparmor_info.c AppArmor status and loaded profile count (informational)
 ├── access.c        orchestrate the above, return the first blocking point
 └── output.c        render AccessResult as text (or JSON later)
 ```
@@ -50,7 +52,7 @@ therefore assert on the result directly, without parsing terminal output.
 | v0.2 | POSIX ACLs |
 | v0.3 | symlinks, special files |
 | v0.4 | capabilities (CAP_DAC_OVERRIDE/CAP_DAC_READ_SEARCH bypass, file capabilities display) |
-| v0.5 | SELinux / AppArmor |
+| v0.5 | SELinux (status + per-file context, informational) and AppArmor (status + profile count, informational) |
 
 ## Goals
 

@@ -12,8 +12,9 @@ typedef struct
     struct stat st;
     acl_t acl; /* NULL when no extended ACL entries */
     bool is_symlink;
-    char *symlink_target; /* NULL unless is_symlink; owned */
-    char *file_caps;      /* NULL unless the file has security.capability set; owned */
+    char *symlink_target;  /* NULL unless is_symlink; owned */
+    char *file_caps;       /* NULL unless the file has security.capability set; owned */
+    char *selinux_context; /* NULL unless SELinux is enabled and the file is labeled; owned */
     bool can_read;
     bool can_write;
     bool can_execute;

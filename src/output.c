@@ -5,6 +5,8 @@
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
+#include "apparmor_info.h"
+#include "selinux_info.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -232,6 +234,8 @@ static void render_tree(const AccessResult *result, AccessOperation op)
                is_block ? "BLOCKED" : "ok");
         if (comp->file_caps)
             printf("  (caps: %s)", comp->file_caps);
+        if (comp->selinux_context)
+            printf("  (selinux: %s)", comp->selinux_context);
         putchar('\n');
     }
 }
@@ -257,4 +261,19 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     putchar('\n');
     render_tree(result, op);
     putchar('\n');
+
+    /* MAC status: only shown when something is actually active, to avoid
+       cluttering the common case of a plain DAC/ACL-only system. */
+    SelinuxStatus se = selinux_status();
+    if (se.available)
+        printf("SELinux: %s\n", se.enforcing == 1 ? "enforcing" : "permissive");
+
+    ApparmorStatus aa = apparmor_status();
+    if (aa.available)
+    {
+        if (aa.profile_count >= 0)
+            printf("AppArmor: enabled (%d profiles loaded)\n", aa.profile_count);
+        else
+            printf("AppArmor: enabled (profile count needs elevated privilege)\n");
+    }
 }

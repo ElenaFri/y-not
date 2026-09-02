@@ -7,6 +7,7 @@
 #include <string.h>
 #include <sys/capability.h>
 #include <unistd.h>
+#include "selinux_info.h"
 
 /* PATH_MAX may be absent on systems without a fixed path limit */
 #ifndef PATH_MAX
@@ -18,6 +19,7 @@ static void free_component(PathComponent *c)
     free(c->path);
     free(c->symlink_target);
     free(c->file_caps);
+    free(c->selinux_context);
     if (c->acl)
         acl_free(c->acl);
 }
@@ -82,6 +84,8 @@ static void inspect_component(PathComponent *c)
 
     if (S_ISREG(c->st.st_mode))
         c->file_caps = read_file_caps(c->path);
+
+    c->selinux_context = selinux_file_context(c->path);
 }
 
 static int build_abs(const char *input, char *buf, size_t size)
