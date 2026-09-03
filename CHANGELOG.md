@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.0.0 — Stable CLI, packaging
+
+- `--version` and `--help`/`-h` flags
+- Man page (`man/y-not.1`), installed by `make install`
+- `.deb` packaging (`make deb`): stripped binary, compressed man page, copyright/changelog, validated with `lintian` and a real install/upgrade/remove cycle
+- Fixed a Makefile bug where bumping `VERSION` without `make clean` could ship a binary reporting the wrong version
+- "Known limitations" section in the README, documenting the ACL mask nuance, untested OOM/TOCTOU paths, and CI running as root
+- CI/CD hardening: GitHub Actions pinned to full commit SHAs (Dependabot keeps them updated), `.deb` published on major-version tags via a dedicated release workflow
+
 ## v0.5.0 — SELinux and AppArmor (informational)
 
 - SELinux: status (enforcing/permissive) and per-file security context, via libselinux
