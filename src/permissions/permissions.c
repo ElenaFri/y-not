@@ -1,8 +1,8 @@
-#include "permissions.h"
+#include "permissions/permissions.h"
 
-#include "acl_eval.h"
-#include "capabilities.h"
-#include "mode_bits.h"
+#include "permissions/acl_eval.h"
+#include "permissions/capabilities.h"
+#include "permissions/mode_bits.h"
 
 PermissionResult evaluate_permissions(const User *user,
                                       const struct stat *st,

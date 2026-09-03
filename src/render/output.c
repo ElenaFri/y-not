@@ -1,12 +1,12 @@
-#include "output.h"
+#include "render/output.h"
 
 #include <grp.h>
 #include <limits.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
-#include "apparmor_info.h"
-#include "selinux_info.h"
+#include "context/apparmor_info.h"
+#include "context/selinux_info.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096

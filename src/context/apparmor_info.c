@@ -1,4 +1,4 @@
-#include "apparmor_info.h"
+#include "context/apparmor_info.h"
 
 #include <stdio.h>
 

@@ -1,4 +1,4 @@
-#include "json_output.h"
+#include "render/json_output.h"
 
 #include <grp.h>
 #include <pwd.h>

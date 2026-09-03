@@ -1,5 +1,5 @@
-#include "../include/capabilities.h"
-#include "../include/user.h"
+#include "../include/permissions/capabilities.h"
+#include "../include/resolve/user.h"
 #include "testlib.h"
 
 #include <fcntl.h>

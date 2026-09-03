@@ -1,6 +1,6 @@
 #include "access.h"
-#include "json_output.h"
-#include "output.h"
+#include "render/json_output.h"
+#include "render/output.h"
 
 #include <stdbool.h>
 #include <stdio.h>

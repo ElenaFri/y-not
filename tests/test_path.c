@@ -1,4 +1,4 @@
-#include "../include/path.h"
+#include "../include/resolve/path.h"
 #include "testlib.h"
 
 #include <acl/libacl.h>

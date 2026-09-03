@@ -1,5 +1,5 @@
 #include "../include/access.h"
-#include "../include/user.h"
+#include "../include/resolve/user.h"
 #include "testlib.h"
 
 #include <pwd.h>

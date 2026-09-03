@@ -1,4 +1,4 @@
-#include "path.h"
+#include "resolve/path.h"
 
 #include <acl/libacl.h>
 #include <errno.h>
@@ -7,7 +7,7 @@
 #include <string.h>
 #include <sys/capability.h>
 #include <unistd.h>
-#include "selinux_info.h"
+#include "context/selinux_info.h"
 
 /* PATH_MAX may be absent on systems without a fixed path limit */
 #ifndef PATH_MAX

@@ -1,11 +1,11 @@
-#include "capabilities.h"
+#include "permissions/capabilities.h"
 
 #include <grp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
-#include "mode_bits.h"
+#include "permissions/mode_bits.h"
 
 #define CAPABILITY_CONF_PATH "/etc/security/capability.conf"
 

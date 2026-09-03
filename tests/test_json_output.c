@@ -1,6 +1,6 @@
-#include "../include/json_output.h"
+#include "../include/render/json_output.h"
 #include "../include/access.h"
-#include "../include/user.h"
+#include "../include/resolve/user.h"
 #include "testlib.h"
 
 #include <fcntl.h>

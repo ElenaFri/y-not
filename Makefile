@@ -6,7 +6,7 @@ SRCDIR   := src
 INCDIR   := include
 BUILDDIR := build
 
-SRCS := $(wildcard $(SRCDIR)/*.c)
+SRCS := $(wildcard $(SRCDIR)/*.c) $(wildcard $(SRCDIR)/*/*.c)
 OBJS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
@@ -43,6 +43,7 @@ $(TARGET): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 # main.c embeds VERSION via -DY_NOT_VERSION, but that's a command-line
@@ -81,35 +82,62 @@ check: $(TARGET) $(TESTBINS)
 	./$(TESTDIR)/test_cli.sh || fail=$$((fail+1)); \
 	[ $$fail -eq 0 ]
 
-$(BUILDDIR)/test_%: $(TESTDIR)/test_%.c $(SRCDIR)/%.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
-
-# test_permissions exercises the ACL fallback and DAC-capability bypass too
-$(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
-    $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
-    $(SRCDIR)/capabilities.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
-
-# test_access links all modules it orchestrates
-$(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
-    $(SRCDIR)/access.c $(SRCDIR)/permissions.c $(SRCDIR)/acl_eval.c $(SRCDIR)/mode_bits.c \
-    $(SRCDIR)/capabilities.c $(SRCDIR)/selinux_info.c \
-    $(SRCDIR)/path.c   $(SRCDIR)/user.c | $(BUILDDIR)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
-
-# test_capabilities exercises the capability.conf parser directly
-$(BUILDDIR)/test_capabilities: $(TESTDIR)/test_capabilities.c \
-    $(SRCDIR)/capabilities.c $(SRCDIR)/mode_bits.c | $(BUILDDIR)
+# Each test binary is linked explicitly against the module(s) it exercises;
+# module .c files live under src/<group>/ now, so no single generic pattern
+# rule can match every test_<name>.c -> src/<name>.c pair like it used to.
+$(BUILDDIR)/test_user: $(TESTDIR)/test_user.c \
+    $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 # path.c queries SELinux for each component's context
 $(BUILDDIR)/test_path: $(TESTDIR)/test_path.c \
-    $(SRCDIR)/path.c $(SRCDIR)/selinux_info.c | $(BUILDDIR)
+    $(SRCDIR)/resolve/path.c $(SRCDIR)/context/selinux_info.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# test_permissions exercises the ACL fallback and DAC-capability bypass too
+$(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
+    $(SRCDIR)/permissions/permissions.c $(SRCDIR)/permissions/acl_eval.c \
+    $(SRCDIR)/permissions/mode_bits.c $(SRCDIR)/permissions/capabilities.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# test_capabilities exercises the capability.conf parser directly
+$(BUILDDIR)/test_capabilities: $(TESTDIR)/test_capabilities.c \
+    $(SRCDIR)/permissions/capabilities.c $(SRCDIR)/permissions/mode_bits.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+$(BUILDDIR)/test_selinux_info: $(TESTDIR)/test_selinux_info.c \
+    $(SRCDIR)/context/selinux_info.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+$(BUILDDIR)/test_apparmor_info: $(TESTDIR)/test_apparmor_info.c \
+    $(SRCDIR)/context/apparmor_info.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# test_access links all modules it orchestrates
+$(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
+    $(SRCDIR)/access.c \
+    $(SRCDIR)/permissions/permissions.c $(SRCDIR)/permissions/acl_eval.c \
+    $(SRCDIR)/permissions/mode_bits.c $(SRCDIR)/permissions/capabilities.c \
+    $(SRCDIR)/context/selinux_info.c \
+    $(SRCDIR)/resolve/path.c $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 # output.c prints the MAC status summary
 $(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
-    $(SRCDIR)/output.c $(SRCDIR)/selinux_info.c $(SRCDIR)/apparmor_info.c | $(BUILDDIR)
+    $(SRCDIR)/render/output.c $(SRCDIR)/context/selinux_info.c $(SRCDIR)/context/apparmor_info.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+$(BUILDDIR)/test_json_output: $(TESTDIR)/test_json_output.c \
+    $(SRCDIR)/render/json_output.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 clean:
@@ -172,8 +200,9 @@ deb: all
 	gzip -9n -c CHANGELOG.md > $(BUILDDIR)/changelog.gz
 	install -Dm644 $(BUILDDIR)/changelog.gz $(DEBROOT)/usr/share/doc/$(TARGET)/changelog.gz
 	mkdir -p $(DEBROOT)/DEBIAN
+	size=$$(du -k -s $(DEBROOT) | cut -f1); \
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEBARCH)/' \
-	    -e 's/@SIZE@/$(shell du -k -s $(DEBROOT) | cut -f1)/' \
+	    -e "s/@SIZE@/$$size/" \
 	    packaging/debian/control.in > $(DEBROOT)/DEBIAN/control
 	dpkg-deb --build --root-owner-group $(DEBROOT) $(DEBFILE)
 	@echo "Built $(DEBFILE)"

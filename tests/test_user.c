@@ -1,4 +1,4 @@
-#include "../include/user.h"
+#include "../include/resolve/user.h"
 #include "testlib.h"
 
 #include <string.h>

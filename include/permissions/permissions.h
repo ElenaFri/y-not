@@ -3,7 +3,7 @@
 #include <sys/acl.h>
 #include <sys/stat.h>
 #include <stdbool.h>
-#include "user.h"
+#include "resolve/user.h"
 
 typedef enum
 {

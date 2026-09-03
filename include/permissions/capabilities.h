@@ -1,7 +1,7 @@
 #pragma once
 
 #include <stdbool.h>
-#include "user.h"
+#include "resolve/user.h"
 
 /* Whether the user would have CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH
    available via /etc/security/capability.conf (pam_cap). These are the

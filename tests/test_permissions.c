@@ -1,4 +1,4 @@
-#include "../include/permissions.h"
+#include "../include/permissions/permissions.h"
 #include "testlib.h"
 
 static User make_user(uid_t uid, gid_t primary, gid_t *groups, size_t n)

@@ -4,7 +4,7 @@
 #include <sys/stat.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "permissions.h"
+#include "permissions/permissions.h"
 
 typedef struct
 {

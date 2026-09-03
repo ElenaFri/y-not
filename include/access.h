@@ -1,8 +1,8 @@
 #pragma once
 
 #include <stdbool.h>
-#include "user.h"
-#include "path.h" /* pulls in permissions.h */
+#include "resolve/user.h"
+#include "resolve/path.h" /* pulls in permissions.h */
 
 typedef struct
 {

@@ -1,4 +1,4 @@
-#include "selinux_info.h"
+#include "context/selinux_info.h"
 
 #include <selinux/selinux.h>
 #include <stdlib.h>

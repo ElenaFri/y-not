@@ -2,6 +2,16 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.1.0 — JSON output
+
+- `--json` flag (must come first): emits a machine-readable document instead of text, for scripts/CI
+- Stable `reason` machine code plus a human `explanation` string for every denial
+- `trace` array mirrors the text renderer: stops at (and includes) the blocked component, never reveals what's past it
+- Always emits valid JSON, even for an unknown user or an unresolvable path
+- Fixed a latent stdio-buffering bug in the test harness: `fflush(stdout)` must happen before redirecting fd 1, or already-buffered output can bleed into the wrong stream
+- Fixed `Installed-Size` in the `.deb` control file: it was computed via `$(shell ...)` inside a Make recipe, which evaluates too early (before the package staging directory exists) and silently produced an empty field on a clean build
+- Reorganized `src/`/`include/` into `resolve/`, `permissions/`, `context/`, `render/` subdirectories, grouped by responsibility rather than kept flat
+
 ## v1.0.0 — Stable CLI, packaging
 
 - `--version` and `--help`/`-h` flags

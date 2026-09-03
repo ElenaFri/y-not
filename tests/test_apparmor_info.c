@@ -1,4 +1,4 @@
-#include "../include/apparmor_info.h"
+#include "../include/context/apparmor_info.h"
 #include "testlib.h"
 
 #include <stdio.h>

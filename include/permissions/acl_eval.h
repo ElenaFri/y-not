@@ -2,9 +2,9 @@
 
 #include <sys/acl.h>
 #include <sys/stat.h>
-#include "mode_bits.h"
-#include "permissions.h"
-#include "user.h"
+#include "permissions/mode_bits.h"
+#include "permissions/permissions.h"
+#include "resolve/user.h"
 
 /* Full POSIX ACL evaluation: owner entry, named user/group entries with
    mask, group-object, other. Called by evaluate_permissions() whenever a

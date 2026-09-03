@@ -1,4 +1,4 @@
-#include "../include/selinux_info.h"
+#include "../include/context/selinux_info.h"
 #include "testlib.h"
 
 #include <fcntl.h>

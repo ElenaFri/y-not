@@ -1,4 +1,4 @@
-#include "mode_bits.h"
+#include "permissions/mode_bits.h"
 
 /* Shift mode bits to the "other" position for uniform comparison. */
 bool class_allows(mode_t mode, AccessOperation op, int shift)
