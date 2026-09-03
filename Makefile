@@ -1,6 +1,6 @@
 CC      ?= cc
 TARGET  := y-not
-VERSION := 1.0.0
+VERSION := 1.1.0
 
 SRCDIR   := src
 INCDIR   := include

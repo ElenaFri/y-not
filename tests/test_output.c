@@ -14,6 +14,7 @@
    exercising a given code path (buffer arithmetic, switch cases, etc). */
 static void render_silently(const AccessResult *result, const User *user, AccessOperation op)
 {
+    fflush(stdout); /* flush anything buffered before fd 1 changes meaning */
     int saved = dup(STDOUT_FILENO);
     int devnull = open("/dev/null", O_WRONLY);
     dup2(devnull, STDOUT_FILENO);

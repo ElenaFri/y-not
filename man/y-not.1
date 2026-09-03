@@ -1,8 +1,9 @@
-.TH Y-NOT 1 "2026-09-03" "y-not 1.0.0" "User Commands"
+.TH Y-NOT 1 "2026-09-03" "y-not 1.1.0" "User Commands"
 .SH NAME
 y-not \- explain why a user can or cannot access a file or directory
 .SH SYNOPSIS
 .B y-not
+.RB [ \-\-json ]
 .I USER OPERATION PATH
 .br
 .B y-not
@@ -37,6 +38,12 @@ Can the user write to the file, or create/remove entries in the directory?
 .TP
 .B execute\fR, \fBx
 Can the user execute the file, or traverse into the directory?
+.SH OPTIONS
+.TP
+.B \-\-json
+Emit a JSON document (schema_version 1) instead of text. Must be the first
+argument. Always emits a valid document, even for an unknown user or a
+path that could not be resolved.
 .SH EXIT STATUS
 .TP
 .B 0
