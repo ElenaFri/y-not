@@ -68,22 +68,55 @@ static char *end_capture(Capture *c)
     return buf;
 }
 
+/* Shared by every test below: redirect stdout, call render_result_json(),
+   and hand back the captured text. Collapses the repeated capture
+   boilerplate that would otherwise duplicate across every check_*(). */
+static char *render_and_capture(const AccessResult *result, const char *user,
+                                AccessOperation op, const char *path)
+{
+    Capture cap;
+    if (!begin_capture(&cap))
+        return NULL;
+    render_result_json(result, user, op, path);
+    return end_capture(&cap);
+}
+
+static char *user_not_found_and_capture(const char *user, AccessOperation op,
+                                        const char *path)
+{
+    Capture cap;
+    if (!begin_capture(&cap))
+        return NULL;
+    render_user_not_found_json(user, op, path);
+    return end_capture(&cap);
+}
+
+/* The vast majority of cases only need a trivial root + target tree;
+   this builds it once instead of repeating the same four lines everywhere. */
+static void make_root_and_target(PathComponent comps[2], const char *target_path,
+                                 mode_t target_mode)
+{
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup(target_path);
+    comps[1].st.st_mode = target_mode;
+}
+
+static void free_components(PathComponent *comps, size_t n)
+{
+    for (size_t i = 0; i < n; i++)
+        free(comps[i].path);
+}
+
 static void check_allowed_case(void)
 {
     PathComponent comps[2] = {0};
-    comps[0].path = strdup("/");
-    comps[0].st.st_mode = S_IFDIR | 0755;
-
-    comps[1].path = strdup("/target");
-    comps[1].st.st_mode = S_IFREG | 0644;
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
 
     AccessPath ap = {.components = comps, .count = 2};
     AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
 
-    Capture cap;
-    CHECK(begin_capture(&cap));
-    render_result_json(&result, "alice", ACCESS_READ, "/target");
-    char *json = end_capture(&cap);
+    char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
     CHECK(json != NULL);
     if (json)
     {
@@ -98,8 +131,7 @@ static void check_allowed_case(void)
         free(json);
     }
 
-    free(comps[0].path);
-    free(comps[1].path);
+    free_components(comps, 2);
 }
 
 static void check_denied_case_and_truncation(void)
@@ -120,12 +152,10 @@ static void check_denied_case_and_truncation(void)
     comps[2].st.st_mode = S_IFREG | 0644;
 
     AccessPath ap = {.components = comps, .count = 3};
-    AccessResult result = {.allowed = false, .reason = REASON_GROUP_MISSING, .blocked_path = comps[1].path, .access_path = &ap};
+    AccessResult result = {.allowed = false, .reason = REASON_GROUP_MISSING,
+                           .blocked_path = comps[1].path, .access_path = &ap};
 
-    Capture cap;
-    CHECK(begin_capture(&cap));
-    render_result_json(&result, "bob", ACCESS_EXECUTE, "/blocked/after_the_block");
-    char *json = end_capture(&cap);
+    char *json = render_and_capture(&result, "bob", ACCESS_EXECUTE, "/blocked/after_the_block");
     CHECK(json != NULL);
     if (json)
     {
@@ -144,19 +174,15 @@ static void check_denied_case_and_truncation(void)
         free(json);
     }
 
-    free(comps[0].path);
-    free(comps[1].path);
-    free(comps[2].path);
+    free_components(comps, 3);
 }
 
 static void check_null_access_path_fallback(void)
 {
-    AccessResult result = {.allowed = false, .reason = REASON_NOT_FOUND, .blocked_path = NULL, .access_path = NULL};
+    AccessResult result = {.allowed = false, .reason = REASON_NOT_FOUND,
+                           .blocked_path = NULL, .access_path = NULL};
 
-    Capture cap;
-    CHECK(begin_capture(&cap));
-    render_result_json(&result, "carol", ACCESS_READ, "/y_not_no_such_path");
-    char *json = end_capture(&cap);
+    char *json = render_and_capture(&result, "carol", ACCESS_READ, "/y_not_no_such_path");
     CHECK(json != NULL);
     if (json)
     {
@@ -170,10 +196,7 @@ static void check_null_access_path_fallback(void)
 
 static void check_user_not_found(void)
 {
-    Capture cap;
-    CHECK(begin_capture(&cap));
-    render_user_not_found_json("nosuchuser", ACCESS_WRITE, "/etc/passwd");
-    char *json = end_capture(&cap);
+    char *json = user_not_found_and_capture("nosuchuser", ACCESS_WRITE, "/etc/passwd");
     CHECK(json != NULL);
     if (json)
     {
@@ -189,19 +212,12 @@ static void check_string_escaping(void)
     /* a path with an embedded quote and backslash must not break the
        JSON output; the escaped sequences must appear in the raw bytes. */
     PathComponent comps[2] = {0};
-    comps[0].path = strdup("/");
-    comps[0].st.st_mode = S_IFDIR | 0755;
-
-    comps[1].path = strdup("/weird\"name\\here");
-    comps[1].st.st_mode = S_IFREG | 0644;
+    make_root_and_target(comps, "/weird\"name\\here", S_IFREG | 0644);
 
     AccessPath ap = {.components = comps, .count = 2};
     AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
 
-    Capture cap;
-    CHECK(begin_capture(&cap));
-    render_result_json(&result, "dave", ACCESS_READ, comps[1].path);
-    char *json = end_capture(&cap);
+    char *json = render_and_capture(&result, "dave", ACCESS_READ, comps[1].path);
     CHECK(json != NULL);
     if (json)
     {
@@ -209,8 +225,100 @@ static void check_string_escaping(void)
         free(json);
     }
 
-    free(comps[0].path);
-    free(comps[1].path);
+    free_components(comps, 2);
+}
+
+/* Every AccessReason must produce a distinct reason_code and explanation;
+   the four stat-failure reasons must also mark their trace entry
+   "resolved": false instead of printing mode/owner/group fields. */
+static const struct
+{
+    AccessReason reason;
+    const char *code;
+    bool stat_failed;
+} g_reasons[] = {
+    {REASON_OWNER_DENIED, "owner_denied", false},
+    {REASON_GROUP_DENIED, "group_denied", false},
+    {REASON_GROUP_MISSING, "group_missing", false},
+    {REASON_OTHER_DENIED, "other_denied", false},
+    {REASON_ACL_DENIED, "acl_denied", false},
+    {REASON_NOT_TRAVERSABLE, "not_traversable", true},
+    {REASON_NOT_FOUND, "not_found", true},
+    {REASON_BROKEN_SYMLINK, "broken_symlink", true},
+    {REASON_SYMLINK_LOOP, "symlink_loop", true},
+};
+
+static void check_every_reason_message(void)
+{
+    for (size_t i = 0; i < sizeof(g_reasons) / sizeof(g_reasons[0]); i++)
+    {
+        PathComponent comps[2] = {0};
+        make_root_and_target(comps, "/target", S_IFREG | 0644);
+        comps[1].st.st_gid = 1000;
+        comps[1].denial_reason = g_reasons[i].reason;
+
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = false, .reason = g_reasons[i].reason,
+                               .blocked_path = comps[1].path, .access_path = &ap};
+
+        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            char expected[64];
+            snprintf(expected, sizeof(expected), "\"reason\": \"%s\"", g_reasons[i].code);
+            CHECK(strstr(json, expected) != NULL);
+            CHECK(strstr(json, g_reasons[i].stat_failed
+                             ? "\"resolved\": false"
+                             : "\"resolved\": true") != NULL);
+            free(json);
+        }
+
+        free_components(comps, 2);
+    }
+}
+
+/* Every control character JSON requires escaping, not just " and \. */
+static void check_control_character_escaping(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/weird\tname\n\r\x01here", S_IFREG | 0644);
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+
+    char *json = render_and_capture(&result, "erin", ACCESS_READ, comps[1].path);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\\tname\\n\\r\\u0001here") != NULL);
+        free(json);
+    }
+
+    free_components(comps, 2);
+}
+
+/* An unresolvable uid/gid must fall back to the numeric form, not crash. */
+static void check_unresolvable_uid_gid(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    comps[1].st.st_uid = 999999;
+    comps[1].st.st_gid = 999999;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+
+    char *json = render_and_capture(&result, "frank", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"owner\": \"999999\"") != NULL);
+        CHECK(strstr(json, "\"group\": \"999999\"") != NULL);
+        free(json);
+    }
+
+    free_components(comps, 2);
 }
 
 int main(void)
@@ -220,5 +328,8 @@ int main(void)
     check_null_access_path_fallback();
     check_user_not_found();
     check_string_escaping();
+    check_every_reason_message();
+    check_control_character_escaping();
+    check_unresolvable_uid_gid();
     return TEST_SUMMARY();
 }
