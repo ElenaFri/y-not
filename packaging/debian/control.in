@@ -3,6 +3,7 @@ Version: @VERSION@
 Section: utils
 Priority: optional
 Architecture: @ARCH@
+Installed-Size: @SIZE@
 Depends: libc6, libacl1, libcap2, libselinux1
 Maintainer: Elena Frison <e_gavrilova_frison@zohomail.eu>
 Homepage: https://github.com/ElenaFri/y-not

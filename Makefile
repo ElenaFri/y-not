@@ -173,6 +173,7 @@ deb: all
 	install -Dm644 $(BUILDDIR)/changelog.gz $(DEBROOT)/usr/share/doc/$(TARGET)/changelog.gz
 	mkdir -p $(DEBROOT)/DEBIAN
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEBARCH)/' \
+	    -e 's/@SIZE@/$(shell du -k -s $(DEBROOT) | cut -f1)/' \
 	    packaging/debian/control.in > $(DEBROOT)/DEBIAN/control
 	dpkg-deb --build --root-owner-group $(DEBROOT) $(DEBFILE)
 	@echo "Built $(DEBFILE)"
