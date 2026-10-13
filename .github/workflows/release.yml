@@ -3,7 +3,7 @@ name: Release
 on:
     push:
         tags:
-            - "v*.0.0" # major versions only (v1.0.0, v2.0.0, ...)
+            - "v[0-9]+.[0-9]+.[0-9]+" # every released version (v1.0.0, v1.1.0, v1.1.1, ...)
 
 permissions:
     contents: write

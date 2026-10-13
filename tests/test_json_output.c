@@ -163,6 +163,9 @@ static void check_denied_case_and_truncation(void)
         CHECK(strstr(json, "\"reason\": \"group_missing\"") != NULL);
         CHECK(strstr(json, "\"blocked_at\": \"/blocked\"") != NULL);
         CHECK(strstr(json, "not in group") != NULL);
+        /* the block is on an intermediate directory, so the explanation must
+           describe a traversal denial, not the requested execute op */
+        CHECK(strstr(json, "which would allow traverse") != NULL);
         /* the trace array itself must stop at the blocked component: count
            per-object markers rather than searching for the string, since
            the top-level "path" field legitimately names the full original

@@ -99,6 +99,7 @@ static const char *op_name(AccessOperation op)
 static void print_reason(const AccessResult *result, AccessOperation op)
 {
     const PathComponent *bc = NULL;
+    bool blocked_is_last = true;
     if (result->access_path && result->blocked_path)
     {
         for (size_t i = 0; i < result->access_path->count; i++)
@@ -107,6 +108,7 @@ static void print_reason(const AccessResult *result, AccessOperation op)
                        result->blocked_path) == 0)
             {
                 bc = &result->access_path->components[i];
+                blocked_is_last = (i == result->access_path->count - 1);
                 break;
             }
         }
@@ -114,7 +116,10 @@ static void print_reason(const AccessResult *result, AccessOperation op)
 
     char gbuf[32];
     const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
-    const char *o = op_name(op);
+    /* Intermediate path components are checked for traversal, not the
+       requested operation: the verb must say so, matching the tree's
+       "enter" column instead of claiming e.g. a missing read bit. */
+    const char *o = blocked_is_last ? op_name(op) : "traverse";
 
     switch (result->reason)
     {

@@ -38,7 +38,7 @@ make install  # install to /usr/local/bin  (PREFIX= to override)
   "path": "/srv/project/report.pdf",
   "allowed": false,
   "reason": "group_missing",
-  "explanation": "not in group \"developers\" (which would allow write)",
+  "explanation": "not in group \"developers\" (which would allow traverse)",
   "blocked_at": "/srv/project",
   "trace": [ ... ]
 }

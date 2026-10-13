@@ -5,7 +5,7 @@ Priority: optional
 Architecture: @ARCH@
 Installed-Size: @SIZE@
 Depends: libc6, libacl1, libcap2, libselinux1
-Maintainer: Elena Frison <e_gavrilova_frison@zohomail.eu>
+Maintainer: @MAINTAINER@
 Homepage: https://github.com/ElenaFri/y-not
 Description: explain why a user can or cannot access a file or directory
  y-not traces the access path to a file and reports whether a given user

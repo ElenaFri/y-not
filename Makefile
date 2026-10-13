@@ -1,6 +1,9 @@
 CC      ?= cc
 TARGET  := y-not
-VERSION := 1.1.0
+VERSION := 1.1.1
+
+# Single source of truth for the packaging maintainer (control + changelog).
+MAINTAINER := Elena Frison <e_gavrilova_frison@zohomail.eu>
 
 SRCDIR   := src
 INCDIR   := include
@@ -199,10 +202,18 @@ deb: all
 	install -Dm644 packaging/debian/copyright $(DEBROOT)/usr/share/doc/$(TARGET)/copyright
 	gzip -9n -c CHANGELOG.md > $(BUILDDIR)/changelog.gz
 	install -Dm644 $(BUILDDIR)/changelog.gz $(DEBROOT)/usr/share/doc/$(TARGET)/changelog.gz
+	# Policy-valid Debian changelog. The rich upstream notes ship separately
+	# as changelog.gz (free-form, which lintian allows once a changelog.Debian
+	# is present). Date honours SOURCE_DATE_EPOCH for reproducible builds.
+	d=$$(date -R $${SOURCE_DATE_EPOCH:+-d @$$SOURCE_DATE_EPOCH}); \
+	printf '%s (%s) unstable; urgency=medium\n\n  * Upstream release %s; see changelog.gz for details.\n\n -- %s  %s\n' \
+	    '$(TARGET)' '$(VERSION)' '$(VERSION)' '$(MAINTAINER)' "$$d" \
+	    | gzip -9n > $(BUILDDIR)/changelog.Debian.gz
+	install -Dm644 $(BUILDDIR)/changelog.Debian.gz $(DEBROOT)/usr/share/doc/$(TARGET)/changelog.Debian.gz
 	mkdir -p $(DEBROOT)/DEBIAN
 	size=$$(du -k -s $(DEBROOT) | cut -f1); \
 	sed -e 's/@VERSION@/$(VERSION)/' -e 's/@ARCH@/$(DEBARCH)/' \
-	    -e "s/@SIZE@/$$size/" \
+	    -e "s/@SIZE@/$$size/" -e 's|@MAINTAINER@|$(MAINTAINER)|' \
 	    packaging/debian/control.in > $(DEBROOT)/DEBIAN/control
 	dpkg-deb --build --root-owner-group $(DEBROOT) $(DEBFILE)
 	@echo "Built $(DEBFILE)"

@@ -2,6 +2,12 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.1.1 — Correctifs
+
+- Fixed the denial message for a blocked parent directory: it now says "traverse" (matching the tree's `enter` column and the JSON trace's `"checked": "enter"`) instead of claiming a missing read/write bit
+- Debian package: ship a policy-valid `changelog.Debian.gz` (lintian is now clean); keep the rich upstream notes as `changelog.gz`; honour `SOURCE_DATE_EPOCH` for reproducible builds; single-source the maintainer field
+- Release workflow now triggers on every `vX.Y.Z` tag, not only major versions, so each published version ships a downloadable `.deb`
+
 ## v1.1.0 — JSON output
 
 - `--json` flag (must come first): emits a machine-readable document instead of text, for scripts/CI

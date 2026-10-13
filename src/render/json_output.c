@@ -114,9 +114,16 @@ static void build_explanation(const AccessResult *result, AccessOperation op,
                               char *buf, size_t size)
 {
     const PathComponent *bc = find_blocked_component(result);
+    bool blocked_is_last = true;
+    if (result->access_path && result->blocked_path && result->access_path->count > 0)
+        blocked_is_last = strcmp(
+            result->access_path->components[result->access_path->count - 1].path,
+            result->blocked_path) == 0;
     char gbuf[32];
     const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
-    const char *o = op_name(op);
+    /* Intermediate components are checked for traversal, not the requested op,
+       so the prose must match the trace's per-component "checked": "enter". */
+    const char *o = blocked_is_last ? op_name(op) : "traverse";
 
     switch (result->reason)
     {
