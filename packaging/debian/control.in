@@ -4,7 +4,7 @@ Section: utils
 Priority: optional
 Architecture: @ARCH@
 Installed-Size: @SIZE@
-Depends: libc6, libacl1, libcap2, libselinux1
+Depends: @DEPENDS@
 Maintainer: @MAINTAINER@
 Homepage: https://github.com/ElenaFri/y-not
 Description: explain why a user can or cannot access a file or directory
