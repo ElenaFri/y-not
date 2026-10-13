@@ -2,7 +2,7 @@
 
 All notable changes to `y-not` are documented here.
 
-## v1.1.1 — Correctifs
+## v1.1.1 — Fixes
 
 - Fixed the denial message for a blocked parent directory: it now says "traverse" (matching the tree's `enter` column and the JSON trace's `"checked": "enter"`) instead of claiming a missing read/write bit
 - Debian package: ship a policy-valid `changelog.Debian.gz` (lintian is now clean); keep the rich upstream notes as `changelog.gz`; honour `SOURCE_DATE_EPOCH` for reproducible builds; single-source the maintainer field

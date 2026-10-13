@@ -7,6 +7,34 @@ A small Linux CLI that explains why a user can or cannot access a file or direct
 
 Instead of piecing together information from `ls`, `namei`, `id`, `getfacl` and other similar tools, `y-not` traces the access path and identifies what is blocking access.
 
+## The problem
+
+`ls -l` on a file shows its permissions — but not whether a user can actually
+reach it. Access also requires the traversal bit (`x`) on **every** parent
+directory; one parent without it blocks access, and `ls -l` on the file won't
+reveal why:
+
+```text
+$ ls -l /tmp/demo/project/report.txt
+-rw-r--r-- 1 elena_f elena_f 11 Oct 13 10:18 /tmp/demo/project/report.txt   # looks readable
+
+$ y-not nobody read /tmp/demo/project/report.txt
+
+nobody cannot read /tmp/demo/project/report.txt
+
+  blocked at  /tmp/demo/project
+  reason      no traverse permission: not the owner and not in the file's group
+
+  /                           drwxr-xr-x  root:root   enter    ok
+  └── tmp                     drwxrwxrwx  root:root   enter    ok
+      └── demo                drwxr-xr-x  elena_f:elena_f   enter    ok
+          └── project         drwx------  elena_f:elena_f   enter    BLOCKED
+              └── report.txt
+```
+
+The file is world-readable, but `/tmp/demo/project` is not traversable by
+`nobody`. `y-not` points at the exact component that blocks access, and why.
+
 ## Usage
 
 ```sh
