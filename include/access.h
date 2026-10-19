@@ -9,6 +9,7 @@ typedef struct
     bool allowed;
     char *blocked_path; /* owned; freed by access_result_free() */
     AccessReason reason;
+    bool blocked_on_traversal; /* target directory lacked x for an entry operation */
     AccessPath *access_path; /* full breakdown for the renderer */
 } AccessResult;
 

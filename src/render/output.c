@@ -116,10 +116,16 @@ static void print_reason(const AccessResult *result, AccessOperation op)
 
     char gbuf[32];
     const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
+    const char *object = bc && S_ISDIR(bc->st.st_mode) ? "directory" : "file";
+    const char *group_object = bc && S_ISDIR(bc->st.st_mode)
+                                   ? "directory's group"
+                                   : "file's group";
     /* Intermediate path components are checked for traversal, not the
        requested operation: the verb must say so, matching the tree's
        "enter" column instead of claiming e.g. a missing read bit. */
-    const char *o = blocked_is_last ? op_name(op) : "traverse";
+    const char *o = (blocked_is_last && !result->blocked_on_traversal)
+                        ? op_name(op)
+                        : "traverse";
 
     switch (result->reason)
     {
@@ -132,13 +138,13 @@ static void print_reason(const AccessResult *result, AccessOperation op)
                grp ? grp : "?", o);
         break;
     case REASON_OWNER_DENIED:
-        printf("  reason      you own this file but lack %s permission\n", o);
+        printf("  reason      you own this %s but lack %s permission\n", object, o);
         break;
     case REASON_ACL_DENIED:
         printf("  reason      ACL entry found for you but it does not grant %s permission\n", o);
         break;
     case REASON_OTHER_DENIED:
-        printf("  reason      no %s permission: not the owner and not in the file's group\n", o);
+        printf("  reason      no %s permission: not the owner and not in the %s\n", o, group_object);
         break;
     case REASON_NOT_TRAVERSABLE:
         printf("  reason      cannot enter this directory\n");
@@ -232,11 +238,12 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         const char *owner = uid_to_name(comp->st.st_uid, ubuf, sizeof(ubuf));
         const char *grp = gid_to_name(comp->st.st_gid, gbuf, sizeof(gbuf));
 
+        const char *checked = (is_last && !result->blocked_on_traversal)
+                                  ? op_name(op)
+                                  : "enter";
         printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
-               owner, grp,
-               is_last ? op_name(op) : "enter",
-               is_block ? "BLOCKED" : "ok");
+               owner, grp, checked, is_block ? "BLOCKED" : "ok");
         if (comp->file_caps)
             printf("  (caps: %s)", comp->file_caps);
         if (comp->selinux_context)

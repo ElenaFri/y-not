@@ -180,6 +180,33 @@ static void check_denied_case_and_truncation(void)
     free_components(comps, 3);
 }
 
+static void check_directory_write_traversal_failure(void)
+{
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup("/target-dir");
+    comps[1].st.st_mode = S_IFDIR | 0666;
+    comps[1].denial_reason = REASON_OTHER_DENIED;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_OTHER_DENIED,
+                           .blocked_on_traversal = true,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+
+    char *json = render_and_capture(&result, "alice", ACCESS_WRITE, "/target-dir");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "no traverse permission") != NULL);
+        CHECK(strstr(json, "not in the directory's group") != NULL);
+        CHECK(strstr(json, "\"checked\": \"enter\",\n      \"allowed\": false") != NULL);
+        free(json);
+    }
+
+    free_components(comps, 2);
+}
+
 static void check_null_access_path_fallback(void)
 {
     AccessResult result = {.allowed = false, .reason = REASON_NOT_FOUND,
@@ -328,6 +355,7 @@ int main(void)
 {
     check_allowed_case();
     check_denied_case_and_truncation();
+    check_directory_write_traversal_failure();
     check_null_access_path_fallback();
     check_user_not_found();
     check_string_escaping();

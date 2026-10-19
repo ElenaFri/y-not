@@ -121,9 +121,15 @@ static void build_explanation(const AccessResult *result, AccessOperation op,
             result->blocked_path) == 0;
     char gbuf[32];
     const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
+    const char *object = bc && S_ISDIR(bc->st.st_mode) ? "directory" : "file";
+    const char *group_object = bc && S_ISDIR(bc->st.st_mode)
+                                   ? "directory's group"
+                                   : "file's group";
     /* Intermediate components are checked for traversal, not the requested op,
        so the prose must match the trace's per-component "checked": "enter". */
-    const char *o = blocked_is_last ? op_name(op) : "traverse";
+    const char *o = (blocked_is_last && !result->blocked_on_traversal)
+                        ? op_name(op)
+                        : "traverse";
 
     switch (result->reason)
     {
@@ -134,13 +140,13 @@ static void build_explanation(const AccessResult *result, AccessOperation op,
         snprintf(buf, size, "in group \"%s\" but the group has no %s permission", grp ? grp : "?", o);
         break;
     case REASON_OWNER_DENIED:
-        snprintf(buf, size, "you own this file but lack %s permission", o);
+        snprintf(buf, size, "you own this %s but lack %s permission", object, o);
         break;
     case REASON_ACL_DENIED:
         snprintf(buf, size, "ACL entry found for you but it does not grant %s permission", o);
         break;
     case REASON_OTHER_DENIED:
-        snprintf(buf, size, "no %s permission: not the owner and not in the file's group", o);
+        snprintf(buf, size, "no %s permission: not the owner and not in the %s", o, group_object);
         break;
     case REASON_NOT_TRAVERSABLE:
         snprintf(buf, size, "cannot enter this directory");
@@ -259,7 +265,8 @@ void render_result_json(const AccessResult *result, const char *username,
         bool first = true;
         for (size_t i = 0; i < limit; i++)
         {
-            bool checked_full_op = (i == count - 1);
+            bool checked_full_op = (i == count - 1) &&
+                                   !result->blocked_on_traversal;
             bool is_blocked = (i == limit - 1) && !result->allowed;
             print_trace_component(&result->access_path->components[i], checked_full_op,
                                   is_blocked, op, &first);

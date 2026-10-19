@@ -39,9 +39,24 @@ AccessResult check_access(const User *user,
         comp->can_write = pr[ACCESS_WRITE].allowed;
         comp->can_execute = pr[ACCESS_EXECUTE].allowed;
 
-        /* Intermediate directories need traversal; target needs the requested op */
+        /* Intermediate directories need traversal. Creating an entry in a
+           target directory requires both search (x) and write (w); checking
+           search first gives a useful, path-oriented explanation. */
         bool is_last = (i == ap->count - 1);
-        PermissionResult check = pr[is_last ? operation : ACCESS_EXECUTE];
+        bool blocked_on_traversal = false;
+        PermissionResult check;
+        if (!is_last)
+            check = pr[ACCESS_EXECUTE];
+        else if (operation == ACCESS_WRITE && S_ISDIR(comp->st.st_mode))
+        {
+            check = pr[ACCESS_EXECUTE];
+            if (!check.allowed)
+                blocked_on_traversal = true;
+            else
+                check = pr[ACCESS_WRITE];
+        }
+        else
+            check = pr[operation];
 
         if (!check.allowed)
         {
@@ -55,6 +70,7 @@ AccessResult check_access(const User *user,
             return (AccessResult){.allowed = false,
                                   .blocked_path = bp,
                                   .reason = check.reason,
+                                  .blocked_on_traversal = blocked_on_traversal,
                                   .access_path = ap};
         }
     }

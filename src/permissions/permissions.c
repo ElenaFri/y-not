@@ -11,18 +11,21 @@ PermissionResult evaluate_permissions(const User *user,
 {
     mode_t mode = st->st_mode;
 
-    /* root bypasses checks; exception: execute requires at least one x bit */
+    /* DAC override bypasses directory search checks. For a regular file,
+       execute still requires at least one execute bit even for root. */
     if (user->uid == 0)
     {
-        bool ok = op != ACCESS_EXECUTE || (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
+        bool ok = op != ACCESS_EXECUTE || !S_ISREG(mode) ||
+                  (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
         return (PermissionResult){.allowed = ok,
                                   .reason = ok ? REASON_NONE : REASON_OWNER_DENIED};
     }
 
-    /* CAP_DAC_OVERRIDE (via pam_cap): bypasses everything, same as root. */
+    /* CAP_DAC_OVERRIDE (via pam_cap): same DAC override rule as root. */
     if (user_has_dac_override(user))
     {
-        bool ok = op != ACCESS_EXECUTE || (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
+        bool ok = op != ACCESS_EXECUTE || !S_ISREG(mode) ||
+                  (mode & (S_IXUSR | S_IXGRP | S_IXOTH));
         return (PermissionResult){.allowed = ok,
                                   .reason = ok ? REASON_NONE : REASON_OWNER_DENIED};
     }

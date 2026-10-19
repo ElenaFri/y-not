@@ -34,12 +34,17 @@ int main(void)
 
     PermissionResult r;
 
-    /* root: always allowed, except execute with no x bit anywhere */
+    /* Root bypasses DAC; executing a regular file still requires an x bit,
+       while directory search is bypassed even when no x bit is set. */
     CHECK(evaluate_permissions(&root, &st_644, ACCESS_READ, NULL).allowed);
     CHECK(evaluate_permissions(&root, &st_644, ACCESS_WRITE, NULL).allowed);
     CHECK(!evaluate_permissions(&root, &st_644, ACCESS_EXECUTE, NULL).allowed);
     struct stat st_755 = make_stat(1000, 1001, 0755);
     CHECK(evaluate_permissions(&root, &st_755, ACCESS_EXECUTE, NULL).allowed);
+    struct stat dir_no_x = {0};
+    dir_no_x.st_mode = S_IFDIR | 0000;
+    CHECK(evaluate_permissions(&root, &dir_no_x, ACCESS_EXECUTE, NULL).allowed);
+    CHECK(!evaluate_permissions(&alice, &dir_no_x, ACCESS_EXECUTE, NULL).allowed);
 
     /* alice is owner - 0644: r+w ok, x denied */
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_READ, NULL).allowed);

@@ -41,7 +41,12 @@ The file is world-readable, but `/tmp/demo/project` is not traversable by
 y-not [--json] USER OPERATION PATH
 ```
 
-`OPERATION` accepts `read`/`r`, `write`/`w`, or `execute`/`x`. `--json` (must
+`OPERATION` accepts `read`/`r`, `write`/`w`, or `execute`/`x`. On a directory,
+`read` checks permission to list names, `execute` checks traversal, and
+`write` checks whether the user can create an entry (requiring both write and
+traversal permission). A generic path check cannot determine whether removing
+or renaming a particular entry is permitted: that also depends on the entry
+and, for sticky directories such as `/tmp`, its ownership. `--json` (must
 come first) emits a machine-readable JSON document instead of text — see
 [JSON output](#json-output) below.
 
