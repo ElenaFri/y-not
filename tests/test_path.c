@@ -83,6 +83,16 @@ int main(void)
         path_free(nope);
     }
 
+    /* A trailing slash also requires the target to be a directory. */
+    AccessPath *file_with_slash = path_resolve("/etc/passwd/");
+    CHECK(file_with_slash != NULL);
+    if (file_with_slash)
+    {
+        PathComponent *last = &file_with_slash->components[file_with_slash->count - 1];
+        CHECK(last->denial_reason == REASON_NOT_FOUND);
+        path_free(file_with_slash);
+    }
+
     /* a middle component that is a regular file, not a directory : ENOTDIR,
        distinct from the plain ENOENT case above */
     AccessPath *notdir = path_resolve("/etc/passwd/impossible");
@@ -126,53 +136,57 @@ int main(void)
         rmdir(blocked_dir);
     }
 
-    /* normalization: . removed */
+    /* Dot segments stay in the inspected prefixes so the kernel, not a
+       lexical normalizer, determines what they mean after symlink traversal. */
     AccessPath *dot = path_resolve("/usr/./bin/ls");
     CHECK(dot != NULL);
     if (dot)
     {
-        CHECK(dot->count == 4);
-        CHECK(strcmp(dot->components[3].path, "/usr/bin/ls") == 0);
+        CHECK(dot->count == 5);
+        CHECK(strcmp(dot->components[2].path, "/usr/.") == 0);
+        CHECK(strcmp(dot->components[4].path, "/usr/./bin/ls") == 0);
+        CHECK(dot->components[4].denial_reason == REASON_NONE);
         path_free(dot);
     }
 
-    /* normalization: .. resolved */
     AccessPath *dotdot = path_resolve("/usr/bin/../bin/ls");
     CHECK(dotdot != NULL);
     if (dotdot)
     {
-        CHECK(dotdot->count == 4);
-        CHECK(strcmp(dotdot->components[3].path, "/usr/bin/ls") == 0);
+        CHECK(dotdot->count == 6);
+        CHECK(strcmp(dotdot->components[3].path, "/usr/bin/..") == 0);
+        CHECK(strcmp(dotdot->components[5].path, "/usr/bin/../bin/ls") == 0);
+        CHECK(dotdot->components[5].denial_reason == REASON_NONE);
         path_free(dotdot);
     }
 
-    /* normalization: cannot go above the root */
+    /* The kernel clamps .. at root; preserve the lexical prefixes for stat. */
     AccessPath *above = path_resolve("/../usr/bin/ls");
     CHECK(above != NULL);
     if (above)
     {
-        CHECK(above->count == 4);
-        CHECK(strcmp(above->components[1].path, "/usr") == 0);
+        CHECK(above->count == 5);
+        CHECK(strcmp(above->components[2].path, "/../usr") == 0);
+        CHECK(above->components[4].denial_reason == REASON_NONE);
         path_free(above);
     }
 
-    /* normalization: repeated leading .. still clamps at the root */
     AccessPath *above_many = path_resolve("/../../../usr");
     CHECK(above_many != NULL);
     if (above_many)
     {
-        CHECK(above_many->count == 2);
-        CHECK(strcmp(above_many->components[1].path, "/usr") == 0);
+        CHECK(above_many->count == 5);
+        CHECK(above_many->components[4].denial_reason == REASON_NONE);
         path_free(above_many);
     }
 
-    /* normalization: going up from a real subdir collapses exactly to root */
     AccessPath *up_to_root = path_resolve("/usr/..");
     CHECK(up_to_root != NULL);
     if (up_to_root)
     {
-        CHECK(up_to_root->count == 1);
-        CHECK(strcmp(up_to_root->components[0].path, "/") == 0);
+        CHECK(up_to_root->count == 3);
+        CHECK(strcmp(up_to_root->components[2].path, "/usr/..") == 0);
+        CHECK(S_ISDIR(up_to_root->components[2].st.st_mode));
         path_free(up_to_root);
     }
 
@@ -235,19 +249,13 @@ int main(void)
         path_free(rel);
     }
 
-    /* empty input and "." both resolve to the current working directory */
-    AccessPath *empty = path_resolve("");
-    CHECK(empty != NULL);
-    if (empty)
-    {
-        CHECK(strcmp(empty->components[empty->count - 1].path, "/usr/bin") == 0);
-        path_free(empty);
-    }
+    /* An empty pathname is invalid; "." names the current directory. */
+    CHECK(path_resolve("") == NULL);
     AccessPath *cur = path_resolve(".");
     CHECK(cur != NULL);
     if (cur)
     {
-        CHECK(strcmp(cur->components[cur->count - 1].path, "/usr/bin") == 0);
+        CHECK(strcmp(cur->components[cur->count - 1].path, "/usr/bin/.") == 0);
         path_free(cur);
     }
 
@@ -256,7 +264,7 @@ int main(void)
     CHECK(parent != NULL);
     if (parent)
     {
-        CHECK(strcmp(parent->components[parent->count - 1].path, "/usr") == 0);
+        CHECK(strcmp(parent->components[parent->count - 1].path, "/usr/bin/..") == 0);
         path_free(parent);
     }
 
@@ -391,9 +399,56 @@ int main(void)
         }
         unlink(path_link);
         unlink(path_target);
-    }
+        }
 
-    char path_broken[sizeof(tmpdir) + 16];
+        /* A lexical link/.. must be interpreted after following the symlink.
+           The two possible targets are distinct so this catches premature
+           textual normalization. */
+        {
+            char elsewhere[sizeof(tmpdir) + 16];
+            char child[sizeof(tmpdir) + 24];
+            char link_path[sizeof(tmpdir) + 16];
+            char actual_target[sizeof(tmpdir) + 32];
+            char lexical_target[sizeof(tmpdir) + 24];
+            char query[sizeof(tmpdir) + 48];
+            snprintf(elsewhere, sizeof(elsewhere), "%s/elsewhere", tmpdir);
+            snprintf(child, sizeof(child), "%s/child", elsewhere);
+            snprintf(link_path, sizeof(link_path), "%s/link", tmpdir);
+            snprintf(actual_target, sizeof(actual_target), "%s/target", elsewhere);
+            snprintf(lexical_target, sizeof(lexical_target), "%s/target", tmpdir);
+            snprintf(query, sizeof(query), "%s/link/../target", tmpdir);
+
+            CHECK(mkdir(elsewhere, 0700) == 0);
+            CHECK(mkdir(child, 0700) == 0);
+            int actual_fd = open(actual_target, O_CREAT | O_EXCL | O_WRONLY, 0600);
+            int lexical_fd = open(lexical_target, O_CREAT | O_EXCL | O_WRONLY, 0600);
+            CHECK(actual_fd != -1);
+            CHECK(lexical_fd != -1);
+            if (actual_fd != -1) close(actual_fd);
+            if (lexical_fd != -1) close(lexical_fd);
+            CHECK(symlink(child, link_path) == 0);
+
+            struct stat expected_st;
+            CHECK(stat(actual_target, &expected_st) == 0);
+            AccessPath *through_link_parent = path_resolve(query);
+            CHECK(through_link_parent != NULL);
+            if (through_link_parent)
+            {
+                PathComponent *last = &through_link_parent->components[
+                    through_link_parent->count - 1];
+                CHECK(last->denial_reason == REASON_NONE);
+                CHECK(last->st.st_ino == expected_st.st_ino);
+                path_free(through_link_parent);
+            }
+
+            unlink(link_path);
+            unlink(actual_target);
+            unlink(lexical_target);
+            rmdir(child);
+            rmdir(elsewhere);
+        }
+
+        char path_broken[sizeof(tmpdir) + 16];
     snprintf(path_broken, sizeof(path_broken), "%s/broken", tmpdir);
 
     /* symlink to a non-existent target : REASON_BROKEN_SYMLINK */

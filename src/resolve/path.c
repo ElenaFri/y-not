@@ -91,6 +91,11 @@ static void inspect_component(PathComponent *c)
 static int build_abs(const char *input, char *buf, size_t size)
 {
     size_t ilen = strlen(input);
+    if (ilen == 0)
+    {
+        errno = ENOENT;
+        return -1;
+    }
     if (*input == '/')
     {
         if (ilen >= size)
@@ -111,85 +116,67 @@ static int build_abs(const char *input, char *buf, size_t size)
     return 0;
 }
 
-/* Returns false on the first allocation failure; already-set paths remain valid. */
-static bool fill_components(PathComponent *comp, size_t count,
+/* Inspect each lexical prefix without resolving . or .. ourselves. The
+   kernel resolves symlinks before interpreting a following .., so collapsing
+   those segments textually can inspect a different object than the caller
+   named (for example, /a/link/../file). Repeated separators are harmless and
+   are omitted from the component list. */
+static bool fill_components(PathComponent *comp, size_t capacity,
                             const char *abs, size_t len)
 {
     comp[0].path = strdup("/");
     if (!comp[0].path)
         return false;
     inspect_component(&comp[0]);
-    if (len <= 1)
-        return true;
 
+    char prefix[PATH_MAX];
+    size_t plen = 1;
+    prefix[0] = '/';
+    prefix[1] = '\0';
     size_t ci = 1;
-    for (size_t i = 1; i < len && ci < count; i++)
-    {
-        if (abs[i] == '/')
-        {
-            comp[ci].path = strndup(abs, i);
-            if (!comp[ci].path)
-                return false;
-            inspect_component(&comp[ci]);
-            ci++;
-        }
-    }
-    comp[count - 1].path = strdup(abs);
-    if (!comp[count - 1].path)
-        return false;
-    inspect_component(&comp[count - 1]);
-    return true;
-}
 
-/* Resolve . and .. segments in an absolute path, in-place. */
-static void normalize_abs(char *path)
-{
-    char buf[PATH_MAX];
-    char *dst = buf + 1;
-    const char *src = path + 1;
-    buf[0] = '/';
-
-    while (*src)
+    for (size_t i = 1; i < len;)
     {
-        while (*src == '/')
-            src++;
-        if (!*src)
+        while (i < len && abs[i] == '/')
+            i++;
+        if (i == len)
             break;
 
-        const char *seg = src;
-        while (*src && *src != '/')
-            src++;
-        size_t slen = (size_t)(src - seg);
+        size_t start = i;
+        while (i < len && abs[i] != '/')
+            i++;
+        size_t segment_len = i - start;
+        if (plen > 1)
+            prefix[plen++] = '/';
+        if (plen + segment_len >= sizeof(prefix) || ci >= capacity)
+            return false;
+        memcpy(prefix + plen, abs + start, segment_len);
+        plen += segment_len;
+        prefix[plen] = '\0';
 
-        if (slen == 1 && *seg == '.')
-            continue;
-
-        if (slen == 2 && seg[0] == '.' && seg[1] == '.')
-        {
-            if (dst > buf + 1)
-            {
-                dst--;
-                while (*(dst - 1) != '/')
-                    dst--;
-            }
-            continue;
-        }
-
-        if (*(dst - 1) != '/')
-            *dst++ = '/';
-        memcpy(dst, seg, slen);
-        dst += slen;
+        comp[ci].path = strdup(prefix);
+        if (!comp[ci].path)
+            return false;
+        inspect_component(&comp[ci]);
+        ci++;
     }
 
-    /* A ".." that backtracks past a non-root segment as the last operation
-       leaves dst right after that segment's separator (e.g. "/usr/bin/.."
-       would otherwise become "/usr/" instead of "/usr"). Trim it, but never
-       past the leading '/' itself. */
-    if (dst > buf + 1 && *(dst - 1) == '/')
-        dst--;
-
-    *dst = '\0';
-    memcpy(path, buf, (size_t)(dst - buf + 1));
+    /* A trailing slash requires the final component to resolve as a directory.
+       Keep it in the final syscall path while avoiding a duplicate trace row. */
+    if (len > 1 && abs[len - 1] == '/' && ci > 1)
+    {
+        if (plen + 1 >= sizeof(prefix))
+            return false;
+        prefix[plen++] = '/';
+        prefix[plen] = '\0';
+        char *with_slash = strdup(prefix);
+        if (!with_slash)
+            return false;
+        free_component(&comp[ci - 1]);
+        comp[ci - 1] = (PathComponent){.path = with_slash};
+        inspect_component(&comp[ci - 1]);
+    }
+    return true;
 }
 
 AccessPath *path_resolve(const char *input)
@@ -201,17 +188,20 @@ AccessPath *path_resolve(const char *input)
     if (build_abs(input, abs, sizeof(abs)) != 0)
         return NULL;
 
-    normalize_abs(abs);
-
     size_t len = strlen(abs);
 
+    /* One trace entry for root plus one for each non-empty path segment.
+       Unlike counting separators, this also handles repeated/trailing '/'. */
     size_t count = 1;
-    if (len > 1)
+    for (size_t i = 1; i < len;)
     {
-        for (size_t i = 1; i < len; i++)
-            if (abs[i] == '/')
-                count++;
+        while (i < len && abs[i] == '/')
+            i++;
+        if (i == len)
+            break;
         count++;
+        while (i < len && abs[i] != '/')
+            i++;
     }
 
     AccessPath *ap = malloc(sizeof(*ap));

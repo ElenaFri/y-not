@@ -27,6 +27,8 @@ typedef struct
     size_t count;
 } AccessPath;
 
-/* Decomposes path into components and calls stat(2) on each one. */
+/* Builds a trace from lexical path prefixes and inspects each with lstat(2)/stat(2).
+   Dot segments are intentionally retained: the kernel must interpret them after
+   following any preceding symlink (notably for link/.. paths). */
 AccessPath *path_resolve(const char *path);
 void path_free(AccessPath *ap);
