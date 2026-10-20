@@ -9,6 +9,55 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
+static void check_noexec_mount_is_the_reported_blocker(const User *user)
+{
+    char dir[] = "/dev/shm/y_not_test_noexec_XXXXXX";
+    if (!mkdtemp(dir))
+        return; /* this host may not provide writable /dev/shm */
+
+    struct stat dir_stat;
+    bool private_dir = lstat(dir, &dir_stat) == 0 && S_ISDIR(dir_stat.st_mode) &&
+                       dir_stat.st_uid == geteuid() && (dir_stat.st_mode & 0077) == 0;
+    CHECK(private_dir);
+    if (!private_dir)
+    {
+        rmdir(dir);
+        return;
+    }
+
+    char target[sizeof(dir) + 8];
+    snprintf(target, sizeof(target), "%s/program", dir);
+    FILE *file = fopen(target, "w");
+    CHECK(file != NULL);
+    if (!file)
+    {
+        rmdir(dir);
+        return;
+    }
+    fclose(file);
+    CHECK(chmod(target, 0755) == 0);
+
+    AccessResult result = check_access(user, target, ACCESS_EXECUTE);
+    CHECK(result.access_path != NULL);
+    if (result.access_path)
+    {
+        PathComponent *last = &result.access_path->components[result.access_path->count - 1];
+        if (last->mount_flags_known && last->mount_noexec)
+        {
+            CHECK(!result.allowed && result.reason == REASON_MOUNT_NOEXEC);
+            CHECK(last->checked_permission_known);
+            CHECK(last->checked_permission.source == PERMISSION_SOURCE_MOUNT);
+        }
+        else
+        {
+            CHECK(result.allowed);
+        }
+    }
+    access_result_free(&result);
+    unlink(target);
+    rmdir(dir);
+}
+
 static void check_directory_entry_creation(void)
 {
     /* Directory entry creation requires both write and search permissions.
@@ -116,6 +165,7 @@ int main(void)
     }
 
     check_directory_entry_creation();
+    check_noexec_mount_is_the_reported_blocker(me);
 
     /* access_result_free(NULL) must be silent */
     access_result_free(NULL);

@@ -14,16 +14,6 @@ static unsigned permset_bits(acl_permset_t ps)
            (acl_get_perm(ps, ACL_EXECUTE) ? 1u : 0u);
 }
 
-static bool mask_allows(AclMask mask, AccessOperation op)
-{
-    switch (op)
-    {
-    case ACCESS_READ:    return mask.r;
-    case ACCESS_WRITE:   return mask.w;
-    case ACCESS_EXECUTE: return mask.x;
-    default:             return false;
-    }
-}
 
 static unsigned mask_bits(AclMask mask)
 {

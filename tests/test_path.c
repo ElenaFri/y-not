@@ -3,17 +3,55 @@
 
 #include <acl/libacl.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <limits.h>
+#include <pwd.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <sys/capability.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+
+static bool path_is_denied_for_nobody(const char *path)
+{
+    if (geteuid() != 0)
+    {
+        AccessPath *ap = path_resolve(path);
+        if (!ap)
+            return false;
+        bool denied = ap->components[ap->count - 1].denial_reason == REASON_NOT_TRAVERSABLE;
+        path_free(ap);
+        return denied;
+    }
+
+    const struct passwd *pw = getpwnam("nobody");
+    if (!pw)
+        return false;
+    pid_t child = fork();
+    if (child == -1)
+        return false;
+    if (child == 0)
+    {
+        if (setgroups(0, NULL) != 0 || setgid(pw->pw_gid) != 0 ||
+            setuid(pw->pw_uid) != 0)
+            _exit(2);
+        AccessPath *ap = path_resolve(path);
+        bool denied = ap && ap->components[ap->count - 1].denial_reason == REASON_NOT_TRAVERSABLE;
+        path_free(ap);
+        _exit(denied ? 0 : 1);
+    }
+
+    int status;
+    if (waitpid(child, &status, 0) != child)
+        return false;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
+}
 
 int main(void)
 {
@@ -105,37 +143,26 @@ int main(void)
         path_free(notdir);
     }
 
-    /* a directory with no execute bit cannot even be stat()'d into : the
-       process itself (not just the simulated "user") gets EACCES from the
-       kernel. root is exempt from this check, so skip when running as root. */
-    if (geteuid() != 0)
-    {
-        char blocked_dir[256];
-        snprintf(blocked_dir, sizeof(blocked_dir), "%s/y_not_test_noexec_XXXXXX", P_tmpdir);
-        CHECK(mkdtemp(blocked_dir) != NULL);
+    /* The host process must itself be unable to traverse a mode-000 parent.
+       When tests run as root, fork and drop to nobody so CI exercises the
+       same kernel EACCES path as an ordinary user. */
+    char blocked_dir[256];
+    snprintf(blocked_dir, sizeof(blocked_dir), "%s/y_not_test_noexec_XXXXXX", P_tmpdir);
+    CHECK(mkdtemp(blocked_dir) != NULL);
 
-        char inner_file[300];
-        snprintf(inner_file, sizeof(inner_file), "%s/file", blocked_dir);
-        int fd = open(inner_file, O_CREAT | O_EXCL | O_WRONLY, 0600);
-        CHECK(fd != -1);
-        if (fd != -1)
-            close(fd);
+    char inner_file[300];
+    snprintf(inner_file, sizeof(inner_file), "%s/file", blocked_dir);
+    int fd = open(inner_file, O_CREAT | O_EXCL | O_WRONLY, 0600);
+    CHECK(fd != -1);
+    if (fd != -1)
+        close(fd);
 
-        CHECK(chmod(blocked_dir, 0000) == 0);
+    CHECK(chmod(blocked_dir, 0000) == 0);
+    CHECK(path_is_denied_for_nobody(inner_file));
 
-        AccessPath *blocked = path_resolve(inner_file);
-        CHECK(blocked != NULL);
-        if (blocked)
-        {
-            PathComponent *last = &blocked->components[blocked->count - 1];
-            CHECK(last->denial_reason == REASON_NOT_TRAVERSABLE);
-            path_free(blocked);
-        }
-
-        chmod(blocked_dir, 0700); /* restore so cleanup can remove it */
-        unlink(inner_file);
-        rmdir(blocked_dir);
-    }
+    chmod(blocked_dir, 0700); /* restore so cleanup can remove it */
+    unlink(inner_file);
+    rmdir(blocked_dir);
 
     /* Dot segments stay in the inspected prefixes so the kernel, not a
        lexical normalizer, determines what they mean after symlink traversal. */
@@ -400,9 +427,37 @@ int main(void)
         }
         unlink(path_link);
         unlink(path_target);
-        }
+    }
 
-        /* A lexical link/.. must be interpreted after following the symlink.
+    /* lstat can read a public symlink even when stat cannot traverse to its
+       target. Exercise the symlink-specific EACCES branch in a dropped-privilege
+       child when this suite itself runs as root. */
+    {
+        char public_dir[256];
+        snprintf(public_dir, sizeof(public_dir), "%s/y_not_test_link_access_XXXXXX", P_tmpdir);
+        CHECK(mkdtemp(public_dir) != NULL);
+        CHECK(chmod(public_dir, 0755) == 0);
+        char locked_dir[300], locked_file[320], public_link[300];
+        snprintf(locked_dir, sizeof(locked_dir), "%s/locked", public_dir);
+        snprintf(locked_file, sizeof(locked_file), "%s/file", locked_dir);
+        snprintf(public_link, sizeof(public_link), "%s/link", public_dir);
+        CHECK(mkdir(locked_dir, 0700) == 0);
+        int locked_fd = open(locked_file, O_CREAT | O_EXCL | O_WRONLY, 0600);
+        CHECK(locked_fd != -1);
+        if (locked_fd != -1)
+            close(locked_fd);
+        CHECK(symlink(locked_file, public_link) == 0);
+        CHECK(chmod(locked_dir, 0000) == 0);
+        CHECK(path_is_denied_for_nobody(public_link));
+        chmod(locked_dir, 0700);
+        unlink(public_link);
+        unlink(locked_file);
+        rmdir(locked_dir);
+        chmod(public_dir, 0700);
+        rmdir(public_dir);
+    }
+
+    /* A lexical link/.. must be interpreted after following the symlink.
            The two possible targets are distinct so this catches premature
            textual normalization. */
         {
@@ -484,6 +539,40 @@ int main(void)
     unlink(path_loop_b);
 
     rmdir(tmpdir);
+
+    /* A relative path cannot be made absolute if the process is in a
+       directory that has been removed. Keep this isolated to the end of the
+       test: the parent moves to / before returning to the harness. */
+    char removed_cwd[256];
+    snprintf(removed_cwd, sizeof(removed_cwd), "%s/y_not_test_removed_cwd_XXXXXX", P_tmpdir);
+    char *created_cwd = mkdtemp(removed_cwd);
+    CHECK(created_cwd != NULL);
+    if (created_cwd)
+    {
+        bool entered_cwd = chdir(created_cwd) == 0;
+        CHECK(entered_cwd);
+        if (entered_cwd)
+        {
+            pid_t remover = fork();
+            CHECK(remover != -1);
+            if (remover == 0)
+                _exit(rmdir(removed_cwd) == 0 ? 0 : 1);
+            if (remover > 0)
+            {
+                int status = 0;
+                pid_t waited = waitpid(remover, &status, 0);
+                CHECK(waited == remover);
+                if (waited == remover)
+                    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+                CHECK(path_resolve("relative") == NULL);
+            }
+            CHECK(chdir("/") == 0);
+            if (remover == -1)
+                rmdir(removed_cwd);
+        }
+        else
+            rmdir(removed_cwd);
+    }
 
     return TEST_SUMMARY();
 }

@@ -54,6 +54,7 @@ int main(void)
     CHECK(mount_restriction_reason(true, false, true, &st_644, ACCESS_EXECUTE) == REASON_MOUNT_NOEXEC);
     CHECK(mount_restriction_reason(true, false, true, &st_directory, ACCESS_EXECUTE) == REASON_NONE);
     CHECK(mount_restriction_reason(true, true, true, &st_644, ACCESS_READ) == REASON_NONE);
+    CHECK(mount_restriction_reason(true, false, false, NULL, ACCESS_READ) == REASON_NONE);
 
     /* alice is owner - 0644: r+w ok, x denied */
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_READ, NULL).allowed);
@@ -168,6 +169,48 @@ int main(void)
         acl_free(acl4);
     }
 
+    /* An unmatched ACL group that would grant access explains the denial
+       as missing group membership, not as a generic "other" denial. */
+    acl_t acl_group_missing = acl_from_text(
+        "user::rw-,group::---,group:2001:r--,mask::r--,other::---");
+    CHECK(acl_group_missing != NULL);
+    if (acl_group_missing)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_group_missing);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.source == PERMISSION_SOURCE_ACL_OTHER);
+        acl_free(acl_group_missing);
+    }
+
+    /* A group entry's raw read bit does not imply a possible grant when the
+       ACL mask removes it; that is an "other" denial, not missing membership. */
+    acl_t acl_group_masked = acl_from_text(
+        "user::rw-,group::r--,group:2001:---,mask::---,other::---");
+    CHECK(acl_group_masked != NULL);
+    if (acl_group_masked)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_group_masked);
+        CHECK(!r.allowed && r.reason == REASON_OTHER_DENIED);
+        acl_free(acl_group_masked);
+    }
+
+    /* Execute permission is also subject to the ACL mask, both when granted
+       and when denied. */
+    acl_t acl_execute = acl_from_text(
+        "user::rw-,user:1000:rwx,group::---,mask::rwx,other::---");
+    CHECK(acl_execute != NULL);
+    if (acl_execute)
+    {
+        r = evaluate_permissions(&acl_alice, &st_acl, ACCESS_EXECUTE,
+                                 acl_execute);
+        CHECK(r.allowed && r.reason == REASON_NONE);
+        CHECK(r.entry_permissions == 7 && r.effective_permissions == 7);
+        CHECK(r.mask_applied && r.mask_permissions == 7);
+        acl_free(acl_execute);
+    }
+
     /* ACL_GROUP_OBJ: a member of the file's own owning group (gid 1002),
        granted directly (not through a named group entry). */
     User acl_owning_group = make_user(5000, 1002, NULL, 0);
@@ -192,6 +235,49 @@ int main(void)
         r = evaluate_permissions(&acl_dave, &st_acl, ACCESS_READ, acl6);
         CHECK(r.allowed && r.reason == REASON_NONE);
         acl_free(acl6);
+    }
+
+    /* Named group entries apply the execute mask and report the same
+       membership distinction for execute as for read/write. */
+    acl_t acl_group_execute = acl_from_text(
+        "user::rw-,group::---,group:2001:--x,mask::--x,other::---");
+    CHECK(acl_group_execute != NULL);
+    if (acl_group_execute)
+    {
+        r = evaluate_permissions(&acl_dave, &st_acl, ACCESS_EXECUTE,
+                                 acl_group_execute);
+        CHECK(r.allowed && r.source == PERMISSION_SOURCE_ACL_GROUP);
+        CHECK(r.entry_permissions == 1 && r.effective_permissions == 1);
+        CHECK(r.mask_applied && r.mask_permissions == 1);
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_EXECUTE,
+                                 acl_group_execute);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        acl_free(acl_group_execute);
+    }
+
+    acl_t acl_group_write_missing = acl_from_text(
+        "user::rw-,group::---,group:2001:-w-,mask::-w-,other::---");
+    CHECK(acl_group_write_missing != NULL);
+    if (acl_group_write_missing)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_WRITE,
+                                 acl_group_write_missing);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        acl_free(acl_group_write_missing);
+    }
+
+    acl_t acl_other_execute = acl_from_text(
+        "user::rw-,group::---,mask::---,other::--x");
+    CHECK(acl_other_execute != NULL);
+    if (acl_other_execute)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_EXECUTE,
+                                 acl_other_execute);
+        CHECK(r.allowed && r.source == PERMISSION_SOURCE_ACL_OTHER);
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_other_execute);
+        CHECK(!r.allowed && r.reason == REASON_OTHER_DENIED);
+        acl_free(acl_other_execute);
     }
 
     /* ...but if every matching group entry denies, the result is still denied. */

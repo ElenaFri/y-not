@@ -3,7 +3,9 @@
 #include "../include/resolve/user.h"
 #include "testlib.h"
 
+#include <acl/libacl.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -13,6 +15,13 @@
 #ifndef PATH_MAX
 #define PATH_MAX 4096
 #endif
+
+static struct group mock_group = {.gr_name = "y_not_test_group", .gr_gid = 1234};
+
+struct group *getgrgid(gid_t gid)
+{
+    return gid == mock_group.gr_gid ? &mock_group : NULL;
+}
 
 typedef struct
 {
@@ -145,6 +154,189 @@ static void check_allowed_case(void)
     free_components(comps, 2);
 }
 
+static void check_all_permission_combinations_and_mount_flags(void)
+{
+    static const char *const permission_text[] = {
+        "---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"};
+
+    for (unsigned bits = 0; bits < 8; bits++)
+    {
+        PathComponent comps[2] = {0};
+        make_root_and_target(comps, "/target", S_IFREG | 0644);
+        bool allowed = bits != 0;
+        comps[1].checked_permission.allowed = allowed;
+        comps[1].checked_permission.reason = allowed ? REASON_NONE : REASON_ACL_DENIED;
+        comps[1].checked_permission.entry_permissions = bits;
+        comps[1].checked_permission.effective_permissions = bits;
+        comps[1].checked_permission.mask_permissions = bits;
+        if (!allowed)
+            comps[1].denial_reason = REASON_ACL_DENIED;
+
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = allowed,
+                               .reason = allowed ? REASON_NONE : REASON_ACL_DENIED,
+                               .blocked_path = allowed ? NULL : comps[1].path,
+                               .access_path = &ap};
+        AccessOperation op = !allowed ? ACCESS_READ
+                             : (bits & 4u) ? ACCESS_READ
+                             : (bits & 2u) ? ACCESS_WRITE
+                                           : ACCESS_EXECUTE;
+        char *json = render_and_capture(&result, "alice", op, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            char expected[192];
+            snprintf(expected, sizeof(expected),
+                     "\"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": true, \"mask_permissions\": \"%s\"",
+                     permission_text[bits], permission_text[bits],
+                     permission_text[bits]);
+            CHECK(strstr(json, expected) != NULL);
+            free(json);
+        }
+        free_components(comps, 2);
+    }
+
+    for (unsigned bits = 0; bits < 8; bits++)
+    {
+        PathComponent comps[2] = {0};
+        make_root_and_target(comps, "/target", S_IFREG | 0644);
+        comps[1].mount_flags_known = true;
+        comps[1].mount_read_only = (bits & 1u) != 0;
+        comps[1].mount_noexec = (bits & 2u) != 0;
+        comps[1].mount_nosuid = (bits & 4u) != 0;
+
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = true, .reason = REASON_NONE,
+                               .access_path = &ap};
+        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            char expected[192];
+            snprintf(expected, sizeof(expected),
+                     "\"mount_flags\": {\"known\": true, \"read_only\": %s, \"noexec\": %s, \"nosuid\": %s}",
+                     (bits & 1u) ? "true" : "false",
+                     (bits & 2u) ? "true" : "false",
+                     (bits & 4u) ? "true" : "false");
+            CHECK(strstr(json, expected) != NULL);
+            free(json);
+        }
+        free_components(comps, 2);
+    }
+}
+
+static void check_file_type_and_acl_metadata(void)
+{
+    static const struct
+    {
+        mode_t type;
+        const char *name;
+    } types[] = {
+        {S_IFDIR, "directory"},
+        {S_IFLNK, "symlink"},
+        {S_IFCHR, "character_device"},
+        {S_IFBLK, "block_device"},
+        {S_IFIFO, "fifo"},
+        {S_IFSOCK, "socket"},
+        {S_IFREG, "file"},
+    };
+
+    for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++)
+    {
+        PathComponent comps[2] = {0};
+        make_root_and_target(comps, "/target", types[i].type | 0644);
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = true, .reason = REASON_NONE,
+                               .access_path = &ap};
+        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            char expected[64];
+            snprintf(expected, sizeof(expected), "\"type\": \"%s\"", types[i].name);
+            CHECK(strstr(json, expected) != NULL);
+            free(json);
+        }
+        free_components(comps, 2);
+    }
+
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    acl_t acl = acl_from_text("user::r--,group::r--,other::r--");
+    CHECK(acl != NULL);
+    if (acl)
+    {
+        comps[1].acl = acl;
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = true, .reason = REASON_NONE,
+                               .access_path = &ap};
+        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            CHECK(strstr(json, "\"has_acl\": true") != NULL);
+            free(json);
+        }
+        acl_free(acl);
+    }
+    free_components(comps, 2);
+}
+
+static void check_named_group_explanations(void)
+{
+    const AccessReason reasons[] = {REASON_GROUP_MISSING, REASON_GROUP_DENIED};
+    const char *const expected[] = {
+        "not in group \\\"y_not_test_group\\\" (which would allow read)",
+        "in group \\\"y_not_test_group\\\" but the group has no read permission"};
+
+    for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); i++)
+    {
+        PathComponent comps[2] = {0};
+        make_root_and_target(comps, "/target", S_IFREG | 0640);
+        comps[1].st.st_gid = mock_group.gr_gid;
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = false, .reason = reasons[i],
+                               .blocked_path = comps[1].path, .access_path = &ap};
+        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        CHECK(json != NULL);
+        if (json)
+        {
+            CHECK(strstr(json, expected[i]) != NULL);
+            free(json);
+        }
+        free_components(comps, 2);
+    }
+}
+
+static void check_intermediate_unresolved_component(void)
+{
+    PathComponent comps[3] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup("/private");
+    comps[1].denial_reason = REASON_NOT_TRAVERSABLE;
+    comps[2].path = strdup("/private/target");
+    comps[2].st.st_mode = S_IFREG | 0644;
+
+    AccessPath ap = {.components = comps, .count = 3};
+    AccessResult result = {.allowed = false, .reason = REASON_NOT_TRAVERSABLE,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    char *json = render_and_capture(&result, "alice", ACCESS_READ,
+                                   "/private/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"resolved\": false") != NULL);
+        CHECK(strstr(json, "\"checked\": \"enter\",\n      \"allowed\": false") != NULL);
+        int trace_entries = 0;
+        for (const char *p = json; (p = strstr(p, "\"checked\":")) != NULL; p++)
+            trace_entries++;
+        CHECK(trace_entries == 2);
+        free(json);
+    }
+    free_components(comps, 3);
+}
+
 static void check_denied_case_and_truncation(void)
 {
     /* three components; the middle one is blocked, the third must not
@@ -189,6 +381,29 @@ static void check_denied_case_and_truncation(void)
     }
 
     free_components(comps, 3);
+}
+
+static void check_defensive_unknown_values(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", 0);
+    comps[1].checked_permission.source = (PermissionSource)999;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = (AccessReason)999,
+                           .blocked_path = "/not-in-trace", .access_path = &ap};
+    char *json = render_and_capture(&result, "alice", (AccessOperation)999, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"operation\": \"access\"") != NULL);
+        CHECK(strstr(json, "\"reason\": \"unknown\"") != NULL);
+        CHECK(strstr(json, "\"explanation\": \"unknown\"") != NULL);
+        CHECK(strstr(json, "\"type\": \"unknown\"") != NULL);
+        CHECK(strstr(json, "\"source\": \"unknown\"") != NULL);
+        free(json);
+    }
+    free_components(comps, 2);
 }
 
 static void check_directory_write_traversal_failure(void)
@@ -367,7 +582,12 @@ static void check_unresolvable_uid_gid(void)
 int main(void)
 {
     check_allowed_case();
+    check_all_permission_combinations_and_mount_flags();
+    check_file_type_and_acl_metadata();
+    check_named_group_explanations();
+    check_intermediate_unresolved_component();
     check_denied_case_and_truncation();
+    check_defensive_unknown_values();
     check_directory_write_traversal_failure();
     check_null_access_path_fallback();
     check_user_not_found();

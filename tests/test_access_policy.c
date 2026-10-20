@@ -1,0 +1,158 @@
+#include "../include/access.h"
+#include "testlib.h"
+
+#include <string.h>
+
+static AccessPath fixture_path;
+static PathComponent fixture_components[3];
+static bool fail_path_resolution;
+static PermissionResult decisions[3][3];
+
+AccessPath *path_resolve(const char *path)
+{
+    (void)path;
+    return fail_path_resolution ? NULL : &fixture_path;
+}
+
+void path_free(AccessPath *path)
+{
+    (void)path; /* fixture storage is static */
+}
+
+PermissionResult evaluate_permissions(const User *user, const struct stat *st,
+                                      AccessOperation op, acl_t acl)
+{
+    (void)user;
+    (void)acl;
+    return decisions[st->st_uid][op];
+}
+
+AccessReason mount_restriction_reason(bool flags_known, bool read_only,
+                                      bool noexec, const struct stat *st,
+                                      AccessOperation op)
+{
+    if (!flags_known || !st)
+        return REASON_NONE;
+    if (op == ACCESS_WRITE && read_only)
+        return REASON_MOUNT_READ_ONLY;
+    if (op == ACCESS_EXECUTE && S_ISREG(st->st_mode) && noexec)
+        return REASON_MOUNT_NOEXEC;
+    return REASON_NONE;
+}
+
+static void setup_fixture(bool target_is_directory)
+{
+    memset(fixture_components, 0, sizeof(fixture_components));
+    memset(decisions, 0, sizeof(decisions));
+    fixture_components[0].path = "/";
+    fixture_components[0].st.st_mode = S_IFDIR | 0755;
+    fixture_components[0].st.st_uid = 0;
+    fixture_components[1].path = "/target";
+    fixture_components[1].st.st_mode = (target_is_directory ? S_IFDIR : S_IFREG) | 0755;
+    fixture_components[1].st.st_uid = 1;
+    fixture_path.components = fixture_components;
+    fixture_path.count = 2;
+    fail_path_resolution = false;
+
+    for (size_t i = 0; i < 2; i++)
+        for (size_t op = 0; op < 3; op++)
+            decisions[i][op] = (PermissionResult){
+                .allowed = true, .reason = REASON_NONE,
+                .source = PERMISSION_SOURCE_UNIX_OTHER,
+                .entry_permissions = 7, .effective_permissions = 7,
+                .mask_permissions = 7,
+            };
+}
+
+static void check_path_resolution_failure(void)
+{
+    setup_fixture(false);
+    fail_path_resolution = true;
+    User user = {.name = "fixture"};
+    AccessResult result = check_access(&user, "/unavailable", ACCESS_READ);
+    CHECK(!result.allowed && result.reason == REASON_NOT_FOUND);
+    CHECK(result.access_path == NULL && result.blocked_path == NULL);
+    access_result_free(&result);
+}
+
+static void check_intermediate_traversal_block(void)
+{
+    setup_fixture(false);
+    decisions[0][ACCESS_EXECUTE] = (PermissionResult){
+        .allowed = false, .reason = REASON_OTHER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OTHER, .entry_permissions = 4,
+        .effective_permissions = 4, .mask_permissions = 7,
+    };
+    User user = {.name = "fixture"};
+    AccessResult result = check_access(&user, "/target", ACCESS_READ);
+    CHECK(!result.allowed && result.reason == REASON_OTHER_DENIED);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/") == 0);
+    CHECK(result.access_path->components[0].checked_permission_known);
+    CHECK(!result.access_path->components[0].can_execute);
+    access_result_free(&result);
+}
+
+static void check_directory_write_needs_search_then_write(void)
+{
+    User user = {.name = "fixture"};
+    setup_fixture(true);
+    decisions[1][ACCESS_EXECUTE] = (PermissionResult){
+        .allowed = false, .reason = REASON_OWNER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OWNER,
+    };
+    AccessResult result = check_access(&user, "/target", ACCESS_WRITE);
+    CHECK(!result.allowed && result.blocked_on_traversal);
+    CHECK(result.reason == REASON_OWNER_DENIED);
+    access_result_free(&result);
+
+    setup_fixture(true);
+    decisions[1][ACCESS_WRITE] = (PermissionResult){
+        .allowed = false, .reason = REASON_GROUP_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_GROUP,
+    };
+    result = check_access(&user, "/target", ACCESS_WRITE);
+    CHECK(!result.allowed && !result.blocked_on_traversal);
+    CHECK(result.reason == REASON_GROUP_DENIED);
+    access_result_free(&result);
+}
+
+static void check_mount_restrictions_override_dac_allow(void)
+{
+    User user = {.name = "fixture"};
+    setup_fixture(false);
+    fixture_components[1].mount_flags_known = true;
+    fixture_components[1].mount_noexec = true;
+    AccessResult result = check_access(&user, "/target", ACCESS_EXECUTE);
+    CHECK(!result.allowed && result.reason == REASON_MOUNT_NOEXEC);
+    CHECK(result.access_path->components[1].checked_permission.source == PERMISSION_SOURCE_MOUNT);
+    access_result_free(&result);
+
+    setup_fixture(true);
+    fixture_components[1].mount_flags_known = true;
+    fixture_components[1].mount_read_only = true;
+    result = check_access(&user, "/target", ACCESS_WRITE);
+    CHECK(!result.allowed && result.reason == REASON_MOUNT_READ_ONLY);
+    CHECK(result.access_path->components[1].checked_permission.source == PERMISSION_SOURCE_MOUNT);
+    access_result_free(&result);
+}
+
+static void check_path_inspection_error_is_reported_before_dac(void)
+{
+    setup_fixture(false);
+    fixture_components[1].denial_reason = REASON_BROKEN_SYMLINK;
+    User user = {.name = "fixture"};
+    AccessResult result = check_access(&user, "/target", ACCESS_READ);
+    CHECK(!result.allowed && result.reason == REASON_BROKEN_SYMLINK);
+    CHECK(result.access_path->components[1].checked_permission_known == false);
+    access_result_free(&result);
+}
+
+int main(void)
+{
+    check_path_resolution_failure();
+    check_intermediate_traversal_block();
+    check_directory_write_needs_search_then_write();
+    check_mount_restrictions_override_dac_allow();
+    check_path_inspection_error_is_reported_before_dac();
+    return TEST_SUMMARY();
+}

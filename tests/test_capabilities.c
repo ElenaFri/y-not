@@ -44,6 +44,10 @@ int main(void)
     write_conf(path, sizeof(path), "none *\n");
     CHECK(!capability_conf_grants(path, &alice, "cap_dac_override"));
 
+    /* A CR-only line tokenizes to no policy term and must be skipped. */
+    write_conf(path, sizeof(path), "\r\ncap_dac_override alice\n");
+    CHECK(capability_conf_grants(path, &alice, "cap_dac_override"));
+
     write_conf(path, sizeof(path),
                "# comment line, and a blank line follow\n"
                "\n"
@@ -98,6 +102,8 @@ int main(void)
 
     /* leading whitespace before the capability spec is tolerated */
     write_conf(path, sizeof(path), "   cap_dac_override   alice\n");
+    CHECK(capability_conf_grants(path, &alice, "cap_dac_override"));
+    write_conf(path, sizeof(path), "\t cap_dac_override\talice\n");
     CHECK(capability_conf_grants(path, &alice, "cap_dac_override"));
 
     /* the real wrappers must not crash regardless of system config */

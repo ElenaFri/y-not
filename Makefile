@@ -122,6 +122,12 @@ $(BUILDDIR)/test_apparmor_info: $(TESTDIR)/test_apparmor_info.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+# Unit-test check_access orchestration with controlled path/permission providers.
+$(BUILDDIR)/test_access_policy: $(TESTDIR)/test_access_policy.c \
+    $(SRCDIR)/access.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
     $(SRCDIR)/access.c \
@@ -132,9 +138,9 @@ $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
-# output.c prints the MAC status summary
+# Status providers are mocked in test_output for deterministic active/inactive cases.
 $(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
-    $(SRCDIR)/render/output.c $(SRCDIR)/context/selinux_info.c $(SRCDIR)/context/apparmor_info.c | $(BUILDDIR)
+    $(SRCDIR)/render/output.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
@@ -143,22 +149,48 @@ $(BUILDDIR)/test_json_output: $(TESTDIR)/test_json_output.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+$(BUILDDIR)/test_mode_bits: $(TESTDIR)/test_mode_bits.c \
+    $(SRCDIR)/permissions/mode_bits.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# Isolate the capability-aware DAC branches from host pam_cap configuration.
+$(BUILDDIR)/test_permission_capabilities: $(TESTDIR)/test_permission_capabilities.c \
+    $(SRCDIR)/permissions/permissions.c $(SRCDIR)/permissions/acl_eval.c \
+    $(SRCDIR)/permissions/mode_bits.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# Mock NSS group responses so getgrouplist() growth is tested deterministically.
+$(BUILDDIR)/test_user_lookup_mock: $(TESTDIR)/test_user_lookup_mock.c \
+    $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 
-# Code coverage: rebuild every test binary with gcov instrumentation, run
-# them all, then summarize with lcov. Needs gcov/lcov/genhtml.
+# Code coverage: rebuild the application and every test with gcov instrumentation,
+# run the full suite (including the CLI against the instrumented binary), then
+# summarize with lcov. Test failures must fail this target, not yield a report.
 CFLAGS_COVERAGE := $(CFLAGS_BASE) -O0 -g --coverage
 
 .PHONY: coverage
-coverage: CFLAGS_DEBUG := $(CFLAGS_COVERAGE)
-coverage: LDLIBS := $(LDLIBS) --coverage
-coverage: clean $(TESTBINS)
-	@for t in $(TESTBINS); do ./$$t >/dev/null 2>&1 || true; done
-	@./$(TESTDIR)/test_cli.sh >/dev/null 2>&1 || true
+coverage:
+	$(MAKE) clean
+	$(MAKE) CFLAGS='$(CFLAGS_COVERAGE)' CFLAGS_DEBUG='$(CFLAGS_COVERAGE)' \
+	    LDFLAGS=--coverage LDLIBS='$(LDLIBS) --coverage' $(TARGET) $(TESTBINS)
+	@fail=0; \
+	for t in $(TESTBINS); do \
+	    if ! ./$$t >/dev/null 2>&1; then echo "FAILED: $$t"; fail=1; fi; \
+	done; \
+	if ! Y_NOT_BIN=./$(TARGET) ./$(TESTDIR)/test_cli.sh >/dev/null 2>&1; then \
+	    echo "FAILED: $(TESTDIR)/test_cli.sh"; fail=1; \
+	fi; \
+	exit $$fail
 	lcov --capture --directory $(BUILDDIR) --output-file $(BUILDDIR)/coverage.info \
-	    --rc branch_coverage=1 >/dev/null
-	lcov --remove $(BUILDDIR)/coverage.info '$(TESTDIR)/*' --output-file $(BUILDDIR)/coverage.info \
+	    --ignore-errors inconsistent --rc branch_coverage=1 >/dev/null
+	lcov --remove $(BUILDDIR)/coverage.info '$(TESTDIR)/*' '/usr/*' --output-file $(BUILDDIR)/coverage.info \
 	    --rc branch_coverage=1 >/dev/null
 	genhtml $(BUILDDIR)/coverage.info --output-directory $(BUILDDIR)/coverage-html \
 	    --rc branch_coverage=1 >/dev/null

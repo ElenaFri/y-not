@@ -29,10 +29,16 @@ expect_contains() {
 
 USER_NAME=$(id -un)
 
-# Argument count
+# Help/version and argument count
+expect_exit "long help option" 0 "$BIN" --help
+expect_exit "short help option" 0 "$BIN" -h
+expect_contains "help describes JSON output" "--json" "$BIN" --help
+expect_exit "version option" 0 "$BIN" --version
+expect_contains "version matches package version" "y-not 1.2.0" "$BIN" --version
 expect_exit "no arguments"       1 "$BIN"
 expect_exit "one argument"       1 "$BIN" "$USER_NAME"
 expect_exit "too many arguments" 1 "$BIN" "$USER_NAME" read /etc/hosts extra
+expect_exit "--json is accepted only first" 1 "$BIN" "$USER_NAME" --json read /etc/hosts
 
 # Unknown operation / unknown user
 expect_exit "unknown operation" 1 "$BIN" "$USER_NAME" frobnicate /etc/hosts
@@ -41,6 +47,8 @@ expect_exit "unknown user"      1 "$BIN" __y_not_no_such_user__ read /etc/hosts
 # Every operation alias must be accepted (long and short form)
 expect_exit "operation alias: read"    0 "$BIN" "$USER_NAME" read    /usr/bin/ls
 expect_exit "operation alias: r"       0 "$BIN" "$USER_NAME" r       /usr/bin/ls
+expect_exit "operation alias: write"   0 "$BIN" "$USER_NAME" write   /tmp
+expect_exit "operation alias: w"       0 "$BIN" "$USER_NAME" w      /tmp
 expect_exit "operation alias: execute" 0 "$BIN" "$USER_NAME" execute /usr/bin/ls
 expect_exit "operation alias: x"       0 "$BIN" "$USER_NAME" x       /usr/bin/ls
 
@@ -67,8 +75,9 @@ while [ "$i" -lt 600 ]; do
     long_path="${long_path}aaaaaaa/"
     i=$((i + 1))
 done
-expect_exit "path longer than PATH_MAX is rejected, not a crash" 1 "$BIN" "$USER_NAME" read "$long_path"
-
+expect_exit "absolute path longer than PATH_MAX is rejected" 1 "$BIN" "$USER_NAME" read "$long_path"
+long_relative=${long_path#/}
+expect_exit "relative path plus cwd longer than PATH_MAX is rejected" 1 "$BIN" "$USER_NAME" read "$long_relative"
 
 echo
 echo "$((RUN - FAIL))/$RUN passed"

@@ -1,17 +1,38 @@
 #include "../include/render/output.h"
 #include "../include/access.h"
+#include "../include/context/apparmor_info.h"
+#include "../include/context/selinux_info.h"
 #include "../include/resolve/user.h"
 #include "testlib.h"
 
 #include <fcntl.h>
+#include <grp.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-/* Every render_result_text() call in this file goes through stdout; none of
-   these tests care about the printed text, only that nothing crashes while
-   exercising a given code path (buffer arithmetic, switch cases, etc). */
+static SelinuxStatus mock_selinux;
+static ApparmorStatus mock_apparmor;
+static struct group mock_group = {.gr_name = "y_not_test_group", .gr_gid = 1234};
+
+struct group *getgrgid(gid_t gid)
+{
+    return gid == mock_group.gr_gid ? &mock_group : NULL;
+}
+
+SelinuxStatus selinux_status(void)
+{
+    return mock_selinux;
+}
+
+ApparmorStatus apparmor_status(void)
+{
+    return mock_apparmor;
+}
+
+/* Most output-rendering cases exercise crash safety and formatting paths;
+   selected cases capture text to assert the explanation users actually see. */
 static void render_silently(const AccessResult *result, const User *user, AccessOperation op)
 {
     fflush(stdout); /* flush anything buffered before fd 1 changes meaning */
@@ -25,6 +46,48 @@ static void render_silently(const AccessResult *result, const User *user, Access
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
     close(saved);
+}
+
+static char *render_and_capture(const AccessResult *result, const User *user,
+                                AccessOperation op)
+{
+    FILE *capture = tmpfile();
+    if (!capture)
+        return NULL;
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    if (saved == -1 || dup2(fileno(capture), STDOUT_FILENO) == -1)
+    {
+        if (saved != -1)
+            close(saved);
+        fclose(capture);
+        return NULL;
+    }
+
+    render_result_text(result, user, op);
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+
+    if (fseek(capture, 0, SEEK_END) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    long length = ftell(capture);
+    if (length < 0 || fseek(capture, 0, SEEK_SET) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    char *text = malloc((size_t)length + 1);
+    if (text)
+    {
+        size_t read_count = fread(text, 1, (size_t)length, capture);
+        text[read_count] = '\0';
+    }
+    fclose(capture);
+    return text;
 }
 
 /* Regression test: rendering a very deeply nested path must not overflow
@@ -161,6 +224,245 @@ static void check_file_types_and_symlink_arrow(void)
 
 /* Optional per-component annotations (file capabilities, SELinux context)
    must be appended to the row without disturbing anything else. */
+static void check_acl_decision_is_explained(void)
+{
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup("/report.txt");
+    comps[1].st.st_mode = S_IFREG | 0640;
+    comps[1].st.st_uid = 1000;
+    comps[1].st.st_gid = 1000;
+    comps[1].denial_reason = REASON_ACL_DENIED;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_ACL_DENIED,
+        .source = PERMISSION_SOURCE_ACL_USER,
+        .entry_permissions = 6, .effective_permissions = 4,
+        .mask_permissions = 4, .mask_applied = true,
+    };
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_ACL_DENIED,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    User user = {.uid = 2000, .primary_gid = 2000, .name = "bob"};
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 1};
+    mock_apparmor = (ApparmorStatus){.available = true, .profile_count = 3};
+    char *text = render_and_capture(&result, &user, ACCESS_WRITE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "ACL entry found for you") != NULL);
+        CHECK(strstr(text, "BLOCKED") != NULL);
+        CHECK(strstr(text, "named ACL user entry: rw- & ACL mask r-- = r--") != NULL);
+        CHECK(strstr(text, "SELinux: enforcing") != NULL);
+        CHECK(strstr(text, "AppArmor: enabled (3 profiles loaded)") != NULL);
+        free(text);
+    }
+
+    mock_selinux.enforcing = 0;
+    mock_apparmor.profile_count = -1;
+    text = render_and_capture(&result, &user, ACCESS_WRITE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "SELinux: permissive") != NULL);
+        CHECK(strstr(text, "profile count needs elevated privilege") != NULL);
+        free(text);
+    }
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+    free(comps[0].path);
+    free(comps[1].path);
+}
+
+static void check_permission_bit_patterns_are_rendered(void)
+{
+    static const char *const permission_text[] = {
+        "---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"};
+
+    for (unsigned bits = 0; bits < 7; bits++)
+    {
+        PathComponent comps[2] = {0};
+        comps[0].path = strdup("/");
+        comps[0].st.st_mode = S_IFDIR | 0755;
+        comps[1].path = strdup("/target");
+        comps[1].st.st_mode = S_IFREG | 0640;
+        comps[1].denial_reason = REASON_ACL_DENIED;
+        comps[1].checked_permission_known = true;
+        comps[1].checked_permission = (PermissionResult){
+            .allowed = false, .reason = REASON_ACL_DENIED,
+            .source = PERMISSION_SOURCE_ACL_USER,
+            .entry_permissions = bits, .effective_permissions = bits,
+            .mask_permissions = bits, .mask_applied = true};
+
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = false, .reason = REASON_ACL_DENIED,
+                               .blocked_path = comps[1].path, .access_path = &ap};
+        User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
+        AccessOperation denied_op = !(bits & 4u) ? ACCESS_READ
+                                   : !(bits & 2u) ? ACCESS_WRITE
+                                                  : ACCESS_EXECUTE;
+        char *text = render_and_capture(&result, &user, denied_op);
+        CHECK(text != NULL);
+        if (text)
+        {
+            char expected[128];
+            snprintf(expected, sizeof(expected),
+                     "named ACL user entry: %s & ACL mask %s = %s",
+                     permission_text[bits], permission_text[bits],
+                     permission_text[bits]);
+            CHECK(strstr(text, expected) != NULL);
+            free(text);
+        }
+        free(comps[0].path);
+        free(comps[1].path);
+    }
+}
+
+static void check_named_group_reasons_are_rendered(void)
+{
+    const AccessReason reasons[] = {REASON_GROUP_MISSING, REASON_GROUP_DENIED};
+    const char *const expected[] = {"not in group \"y_not_test_group\"",
+                                    "in group \"y_not_test_group\" but the group has no read permission"};
+
+    for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); i++)
+    {
+        PathComponent comps[2] = {0};
+        comps[0].path = strdup("/");
+        comps[0].st.st_mode = S_IFDIR | 0755;
+        comps[1].path = strdup("/target");
+        comps[1].st.st_mode = S_IFREG | 0640;
+        comps[1].st.st_gid = mock_group.gr_gid;
+        comps[1].denial_reason = reasons[i];
+
+        AccessPath ap = {.components = comps, .count = 2};
+        AccessResult result = {.allowed = false, .reason = reasons[i],
+                               .blocked_path = comps[1].path, .access_path = &ap};
+        User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
+        char *text = render_and_capture(&result, &user, ACCESS_READ);
+        CHECK(text != NULL);
+        if (text)
+        {
+            CHECK(strstr(text, expected[i]) != NULL);
+            free(text);
+        }
+        free(comps[0].path);
+        free(comps[1].path);
+    }
+}
+
+static void check_intermediate_traversal_explanation(void)
+{
+    PathComponent comps[3] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup("/private");
+    comps[1].st.st_mode = S_IFDIR | 0700;
+    comps[1].denial_reason = REASON_OWNER_DENIED;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_OWNER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OWNER};
+    comps[2].path = strdup("/private/target");
+    comps[2].st.st_mode = S_IFREG | 0644;
+
+    AccessPath ap = {.components = comps, .count = 3};
+    AccessResult result = {.allowed = false, .reason = REASON_OWNER_DENIED,
+                           .blocked_on_traversal = true,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "alice"};
+    char *text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "lack traverse permission") != NULL);
+        CHECK(strstr(text, "enter") != NULL);
+        CHECK(strstr(text, "Unix owner bits: ---") != NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+    free(comps[2].path);
+}
+
+static void check_mount_flags_are_rendered(void)
+{
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[1].path = strdup("/target");
+    comps[1].st.st_mode = S_IFREG | 0755;
+    comps[1].mount_flags_known = true;
+    comps[1].mount_read_only = true;
+    comps[1].mount_noexec = true;
+    comps[1].mount_nosuid = true;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = true, .reason = REASON_NONE,
+                           .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
+
+    char *text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "(mount: ro noexec nosuid)") != NULL);
+        free(text);
+    }
+
+    comps[1].mount_read_only = false;
+    comps[1].mount_noexec = false;
+    comps[1].mount_nosuid = false;
+    text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "(mount:") == NULL);
+        free(text);
+    }
+
+    comps[1].mount_noexec = true;
+    text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "(mount: noexec)") != NULL);
+        free(text);
+    }
+    comps[1].mount_noexec = false;
+    comps[1].mount_nosuid = true;
+    text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "(mount: nosuid)") != NULL);
+        free(text);
+    }
+
+    comps[1].mount_nosuid = false;
+    comps[1].mount_noexec = true;
+    comps[1].denial_reason = REASON_MOUNT_NOEXEC;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_MOUNT_NOEXEC,
+        .source = PERMISSION_SOURCE_MOUNT};
+    result = (AccessResult){.allowed = false, .reason = REASON_MOUNT_NOEXEC,
+                            .blocked_path = comps[1].path, .access_path = &ap};
+    text = render_and_capture(&result, &user, ACCESS_EXECUTE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "mount restriction: ---") != NULL);
+        CHECK(strstr(text, "ACL mask") == NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+}
+
 static void check_file_caps_and_selinux_annotations(void)
 {
     PathComponent comps[2] = {0};
@@ -248,6 +550,11 @@ int main(void)
     check_null_access_path_does_not_crash();
     check_every_reason_message();
     check_file_types_and_symlink_arrow();
+    check_acl_decision_is_explained();
+    check_permission_bit_patterns_are_rendered();
+    check_named_group_reasons_are_rendered();
+    check_intermediate_traversal_explanation();
+    check_mount_flags_are_rendered();
     check_file_caps_and_selinux_annotations();
     check_component_after_the_blocked_one();
     check_defensive_default_cases();
