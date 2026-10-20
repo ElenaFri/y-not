@@ -1,6 +1,6 @@
 CC      ?= cc
 TARGET  := y-not
-VERSION := 1.3.0
+VERSION := 1.3.1
 
 # Single source of truth for the packaging maintainer (control + changelog).
 MAINTAINER := Elena Frison <e_gavrilova_frison@zohomail.eu>

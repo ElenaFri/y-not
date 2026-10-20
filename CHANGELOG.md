@@ -2,6 +2,13 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.3.1 — Clarify execute permission checks
+
+Clarify that `execute` checks permissions, not executable format.
+
+- State explicitly when a regular file lacks execute permission for the user
+- Document that y-not does not validate executable formats or interpreter/loader availability
+
 ## v1.3.0 — Permission decision transparency
 
 Make permission denials easier to understand and act on.
