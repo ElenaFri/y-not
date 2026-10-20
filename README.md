@@ -66,6 +66,29 @@ nobody cannot write /tmp/demo/latest-report.csv
 
 The temporary path and owner/group names vary on your system. This checks the ACL metadata for `nobody`; y-not does not run the write operation as that account.
 
+## Missing group membership: which group would help?
+
+When a denial would be lifted by joining a group, y-not names every group whose effective permissions (after any ACL mask) would grant the operation, rather than guessing a single one. Here two named ACL groups could each grant read:
+
+```sh
+demo=$(mktemp -d)
+trap 'rm -rf "$demo"' EXIT
+chmod 755 "$demo"
+printf 'secret\n' > "$demo/report.csv"
+chmod 600 "$demo/report.csv"
+setfacl -m g:mail:r,g:news:r,m:r "$demo/report.csv"
+y-not nobody read "$demo/report.csv"
+```
+
+```text
+nobody cannot read /tmp/demo/report.csv
+
+  blocked at  /tmp/demo/report.csv
+  reason      not in any of the groups that would allow read: "mail", "news"
+```
+
+Only groups whose rights survive the ACL mask are listed, so the suggestion is actionable: joining any one of them would grant access. In JSON this appears as a `candidate_groups` array in the blocked component's `decision` object.
+
 ## Install
 
 Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:
@@ -91,7 +114,7 @@ y-not --json alice write /srv/project
 
 On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. This generic check does not decide whether a particular directory entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
 
-The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. When missing group membership explains a denial, `missing_group_gid` identifies one group whose permissions would grant the requested operation; for ACLs, the effective rights after the ACL mask are used. This identifies a relevant group, not every possible group membership. `reason` is a machine-readable reason code. Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
+The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. When missing group membership explains a denial, `missing_group_gid` identifies one group whose permissions would grant the requested operation, and `candidate_groups` lists every such group (GID and name); for ACLs, the effective rights after the ACL mask are used. `reason` is a machine-readable reason code. Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
 
 ## What is checked
 

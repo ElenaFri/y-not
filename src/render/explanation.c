@@ -41,6 +41,32 @@ static const char *gid_to_name(gid_t gid, char *buffer, size_t buffer_size)
     return buffer;
 }
 
+/* Render the candidate groups as a comma-separated list of quoted names,
+   e.g. "staff", "backup". Returns how many groups the denial reported, so
+   the caller can pick singular vs plural phrasing even if the text was
+   truncated to fit the buffer. */
+static unsigned format_candidate_groups(const PermissionResult *perm,
+                                        char *out, size_t out_size)
+{
+    out[0] = '\0';
+    size_t len = 0;
+    unsigned n = perm->candidate_group_count;
+    if (n > Y_NOT_MAX_CANDIDATE_GROUPS)
+        n = Y_NOT_MAX_CANDIDATE_GROUPS;
+    for (unsigned i = 0; i < n; i++)
+    {
+        char name_buffer[32];
+        const char *name = gid_to_name(perm->candidate_group_gids[i],
+                                       name_buffer, sizeof(name_buffer));
+        int written = snprintf(out + len, out_size - len, "%s\"%s\"",
+                               i == 0 ? "" : ", ", name);
+        if (written < 0 || (size_t)written >= out_size - len)
+            break;
+        len += (size_t)written;
+    }
+    return perm->candidate_group_count;
+}
+
 void format_access_explanation(const AccessResult *result, AccessOperation op,
                                char *buffer, size_t buffer_size)
 {
@@ -58,6 +84,9 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
 
     char group_buffer[32];
     const char *group_name = NULL;
+    char group_list[256];
+    group_list[0] = '\0';
+    unsigned listed_groups = 0;
     if (blocked)
     {
         bool unknown_acl_group = result->reason == REASON_GROUP_MISSING &&
@@ -66,12 +95,23 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
                                  !blocked->checked_permission.missing_group_known;
         if (!unknown_acl_group)
         {
-            gid_t group_gid = blocked->st.st_gid;
+            const PermissionResult *perm = &blocked->checked_permission;
             if (result->reason == REASON_GROUP_MISSING &&
                 blocked->checked_permission_known &&
-                blocked->checked_permission.missing_group_known)
-                group_gid = blocked->checked_permission.missing_group_gid;
-            group_name = gid_to_name(group_gid, group_buffer, sizeof(group_buffer));
+                perm->candidate_group_count > 0)
+            {
+                listed_groups = format_candidate_groups(perm, group_list,
+                                                        sizeof(group_list));
+            }
+            else
+            {
+                gid_t group_gid = blocked->st.st_gid;
+                if (result->reason == REASON_GROUP_MISSING &&
+                    blocked->checked_permission_known &&
+                    perm->missing_group_known)
+                    group_gid = perm->missing_group_gid;
+                group_name = gid_to_name(group_gid, group_buffer, sizeof(group_buffer));
+            }
         }
     }
 
@@ -89,8 +129,16 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
         snprintf(buffer, buffer_size, "access allowed");
         break;
     case REASON_GROUP_MISSING:
-        snprintf(buffer, buffer_size, "not in group \"%s\" (which would allow %s)",
-                 group_name ? group_name : "?", operation);
+        if (listed_groups > 1)
+            snprintf(buffer, buffer_size,
+                     "not in any of the groups that would allow %s: %s",
+                     operation, group_list);
+        else if (listed_groups == 1)
+            snprintf(buffer, buffer_size, "not in group %s (which would allow %s)",
+                     group_list, operation);
+        else
+            snprintf(buffer, buffer_size, "not in group \"%s\" (which would allow %s)",
+                     group_name ? group_name : "?", operation);
         break;
     case REASON_GROUP_DENIED:
         snprintf(buffer, buffer_size, "in group \"%s\" but the group has no %s permission",

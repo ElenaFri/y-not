@@ -13,6 +13,11 @@ typedef enum
     ACCESS_EXECUTE,
 } AccessOperation;
 
+/* Upper bound on the number of candidate groups reported for a missing-group
+   denial. POSIX ACLs rarely carry this many granting group entries, and a
+   fixed array keeps PermissionResult a plain, copyable value type. */
+#define Y_NOT_MAX_CANDIDATE_GROUPS 16
+
 typedef enum
 {
     REASON_NONE = 0,
@@ -54,8 +59,13 @@ typedef struct
     unsigned effective_permissions; /* entry after ACL mask, when applicable */
     unsigned mask_permissions;
     bool mask_applied;
-    gid_t missing_group_gid; /* a non-member group that would grant the operation */
+    gid_t missing_group_gid; /* first candidate group; kept for compatibility */
     bool missing_group_known;
+    /* Every non-member group whose effective permissions (after any ACL mask)
+       would grant the operation. candidate_group_gids[0] mirrors
+       missing_group_gid when candidate_group_count > 0. */
+    gid_t candidate_group_gids[Y_NOT_MAX_CANDIDATE_GROUPS];
+    unsigned candidate_group_count;
 } PermissionResult;
 
 PermissionResult evaluate_permissions(const User *user,

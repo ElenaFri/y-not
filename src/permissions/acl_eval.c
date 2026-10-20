@@ -25,12 +25,28 @@ static unsigned operation_bit(AccessOperation op)
     return op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u;
 }
 
-static bool find_missing_acl_group(const User *user, const struct stat *st,
-                                   AccessOperation op, acl_t acl, AclMask mask,
-                                   gid_t *group_gid)
+static bool add_candidate_group(gid_t *list, unsigned *count, gid_t gid)
+{
+    for (unsigned i = 0; i < *count; i++)
+        if (list[i] == gid)
+            return false; /* already listed */
+    if (*count >= Y_NOT_MAX_CANDIDATE_GROUPS)
+        return false;
+    list[(*count)++] = gid;
+    return true;
+}
+
+/* Collect every non-member group whose effective rights (after the ACL mask)
+   would grant this operation: the owning group entry and each named group
+   entry. The user is in none of them (the caller only reaches this when no
+   matching group entry applied), so each is a membership that would help. */
+static unsigned collect_missing_acl_groups(const User *user, const struct stat *st,
+                                           AccessOperation op, acl_t acl, AclMask mask,
+                                           gid_t *list)
 {
     unsigned needed = operation_bit(op);
     unsigned effective_mask = mask_bits(mask);
+    unsigned count = 0;
     acl_entry_t e;
 
     for (int rv = acl_get_entry(acl, ACL_FIRST_ENTRY, &e); rv == 1;
@@ -44,27 +60,19 @@ static bool find_missing_acl_group(const User *user, const struct stat *st,
             continue;
 
         if (tag == ACL_GROUP_OBJ && !user_in_group(user, st->st_gid))
-        {
-            *group_gid = st->st_gid;
-            return true;
-        }
-        if (tag == ACL_GROUP)
+            add_candidate_group(list, &count, st->st_gid);
+        else if (tag == ACL_GROUP)
         {
             gid_t *q = acl_get_qualifier(e);
             if (q)
             {
-                gid_t candidate = *q;
-                bool missing = !user_in_group(user, candidate);
+                if (!user_in_group(user, *q))
+                    add_candidate_group(list, &count, *q);
                 acl_free(q);
-                if (missing)
-                {
-                    *group_gid = candidate;
-                    return true;
-                }
             }
         }
     }
-    return false;
+    return count;
 }
 
 static PermissionResult result(bool allowed, AccessReason reason,
@@ -170,7 +178,14 @@ PermissionResult evaluate_acl_permissions(const User *user, const struct stat *s
     PermissionResult denied = result(false, reason, PERMISSION_SOURCE_ACL_OTHER,
                                      other, mask, false);
     if (reason == REASON_GROUP_MISSING)
-        denied.missing_group_known = find_missing_acl_group(
-            user, st, op, acl, mask, &denied.missing_group_gid);
+    {
+        denied.candidate_group_count = collect_missing_acl_groups(
+            user, st, op, acl, mask, denied.candidate_group_gids);
+        if (denied.candidate_group_count > 0)
+        {
+            denied.missing_group_gid = denied.candidate_group_gids[0];
+            denied.missing_group_known = true;
+        }
+    }
     return denied;
 }

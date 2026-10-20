@@ -46,9 +46,26 @@ int main(void)
             .source = PERMISSION_SOURCE_ACL_OTHER,
             .missing_group_gid = 1234,
             .missing_group_known = true,
+            .candidate_group_gids = {1234},
+            .candidate_group_count = 1,
         },
         5678, false,
         "not in group \"y_not_test_group\" (which would allow read)");
+
+    /* Several candidate groups: a plural phrasing lists each, named or numeric. */
+    check_explanation(
+        REASON_GROUP_MISSING, ACCESS_READ,
+        (PermissionResult){
+            .reason = REASON_GROUP_MISSING,
+            .source = PERMISSION_SOURCE_ACL_OTHER,
+            .missing_group_gid = 1234,
+            .missing_group_known = true,
+            .candidate_group_gids = {1234, 9999},
+            .candidate_group_count = 2,
+        },
+        5678, false,
+        "not in any of the groups that would allow read: "
+        "\"y_not_test_group\", \"9999\"");
 
     check_explanation(
         REASON_GROUP_MISSING, ACCESS_WRITE,
@@ -95,6 +112,35 @@ int main(void)
         (PermissionResult){.reason = REASON_OWNER_DENIED},
         1234, true,
         "you own this directory but lack traverse permission");
+
+    /* Defensive: a candidate count beyond the array capacity must be clamped,
+       never read past the fixed array. Under ASan an overrun would abort. */
+    {
+        PermissionResult perm = {
+            .reason = REASON_GROUP_MISSING,
+            .source = PERMISSION_SOURCE_ACL_OTHER,
+            .missing_group_gid = 1234,
+            .missing_group_known = true,
+            .candidate_group_count = Y_NOT_MAX_CANDIDATE_GROUPS + 5,
+        };
+        for (unsigned i = 0; i < Y_NOT_MAX_CANDIDATE_GROUPS; i++)
+            perm.candidate_group_gids[i] = 1234;
+        PathComponent components[2] = {0};
+        components[0].path = "/";
+        components[0].st.st_mode = S_IFDIR | 0755;
+        components[1].path = "/target";
+        components[1].st.st_mode = S_IFREG | 0640;
+        components[1].checked_permission = perm;
+        components[1].checked_permission_known = true;
+        AccessPath access_path = {.components = components, .count = 2};
+        AccessResult result = {
+            .allowed = false, .reason = REASON_GROUP_MISSING,
+            .blocked_path = components[1].path, .access_path = &access_path,
+        };
+        char actual[512];
+        format_access_explanation(&result, ACCESS_READ, actual, sizeof(actual));
+        CHECK(strncmp(actual, "not in any of the groups", 24) == 0);
+    }
 
     return TEST_SUMMARY();
 }

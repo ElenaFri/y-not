@@ -2,6 +2,14 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.4.0 — List every group that would grant access
+
+Turn a missing-group denial into actionable advice.
+
+- Report every non-member group whose effective permissions (after any ACL mask) would grant the requested operation, instead of naming a single one
+- Add a `candidate_groups` array (GID and name) to the JSON `decision`; keep `missing_group_gid` for compatibility
+- Document the multi-group diagnosis in the README and man page
+
 ## v1.3.1 — Clarify execute permission checks
 
 Clarify that `execute` checks permissions, not executable format.

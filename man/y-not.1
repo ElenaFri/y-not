@@ -1,4 +1,4 @@
-.TH Y-NOT 1 "2026-10-20" "y-not 1.3.1" "User Commands"
+.TH Y-NOT 1 "2026-10-20" "y-not 1.4.0" "User Commands"
 .SH NAME
 y-not \- explain why a user can or cannot access a file or directory
 .SH SYNOPSIS
@@ -31,10 +31,12 @@ a single, human-readable explanation. Capability grants from pam_cap's
 capability.conf are used as an approximation; this is not a simulation of an
 actual target process's effective capabilities.
 .PP
-When missing group membership explains a denial, y-not names one group whose
+When missing group membership explains a denial, y-not names every group whose
 mode bits or effective ACL permissions would grant the requested operation.
-For ACLs, the effective permissions after the ACL mask are considered. This
-identifies a relevant group, not every possible group membership.
+For ACLs, the effective permissions after the ACL mask are considered, so only
+groups that would actually help are listed. In JSON these are reported as a
+.B candidate_groups
+array.
 .SH OPERATION
 .TP
 .B read\fR, \fBr

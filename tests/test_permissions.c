@@ -195,7 +195,81 @@ int main(void)
                                  acl_group_obj_missing);
         CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
         CHECK(r.missing_group_known && r.missing_group_gid == 1002);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 1002);
         acl_free(acl_group_obj_missing);
+    }
+
+    /* Several groups could grant the operation: the owning group and two named
+       group entries. All three are reported as candidate memberships, in ACL
+       order, and missing_group_gid mirrors the first. */
+    acl_t acl_multi_missing = acl_from_text(
+        "user::rw-,group::r--,group:2001:r--,group:2002:r--,mask::r--,other::---");
+    CHECK(acl_multi_missing != NULL);
+    if (acl_multi_missing)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_multi_missing);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 3);
+        CHECK(r.candidate_group_gids[0] == 1002);
+        CHECK(r.candidate_group_gids[1] == 2001);
+        CHECK(r.candidate_group_gids[2] == 2002);
+        CHECK(r.missing_group_known && r.missing_group_gid == 1002);
+        acl_free(acl_multi_missing);
+    }
+
+    /* Only groups whose effective rights survive the mask are candidates: here
+       2002's read is removed by the mask, so just 2001 is reported. */
+    acl_t acl_multi_masked = acl_from_text(
+        "user::rw-,group::---,group:2001:r--,group:2002:-w-,mask::r--,other::---");
+    CHECK(acl_multi_masked != NULL);
+    if (acl_multi_masked)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_multi_masked);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 2001);
+        acl_free(acl_multi_masked);
+    }
+
+    /* A plain mode-bits denial reports exactly the owning group as the single
+       candidate membership. */
+    r = evaluate_permissions(&bob, &st_640, ACCESS_READ, NULL);
+    CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+    CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 1001);
+
+    /* A named group entry duplicating the owning group's gid is reported once. */
+    acl_t acl_dup_group = acl_from_text(
+        "user::rw-,group::r--,group:1002:r--,mask::r--,other::---");
+    CHECK(acl_dup_group != NULL);
+    if (acl_dup_group)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_dup_group);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 1002);
+        acl_free(acl_dup_group);
+    }
+
+    /* More granting groups than the candidate array holds: the list is capped
+       at Y_NOT_MAX_CANDIDATE_GROUPS without overflowing. */
+    {
+        char text[1024];
+        size_t len = (size_t)snprintf(text, sizeof(text),
+            "user::rw-,group::---,mask::r--,other::---");
+        for (int g = 3000; g < 3000 + Y_NOT_MAX_CANDIDATE_GROUPS + 4; g++)
+            len += (size_t)snprintf(text + len, sizeof(text) - len,
+                                    ",group:%d:r--", g);
+        acl_t acl_many = acl_from_text(text);
+        CHECK(acl_many != NULL);
+        if (acl_many)
+        {
+            r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                     acl_many);
+            CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+            CHECK(r.candidate_group_count == Y_NOT_MAX_CANDIDATE_GROUPS);
+            acl_free(acl_many);
+        }
     }
 
     /* A group entry's raw read bit does not imply a possible grant when the

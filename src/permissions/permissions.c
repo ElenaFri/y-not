@@ -85,6 +85,8 @@ PermissionResult evaluate_permissions(const User *user, const struct stat *st,
     {
         denied.missing_group_gid = st->st_gid;
         denied.missing_group_known = true;
+        denied.candidate_group_gids[0] = st->st_gid;
+        denied.candidate_group_count = 1;
     }
     return denied;
 }

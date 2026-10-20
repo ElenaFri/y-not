@@ -170,6 +170,19 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
             printf("%u", (unsigned)comp->checked_permission.missing_group_gid);
         else
             fputs("null", stdout);
+        fputs(", \"candidate_groups\": [", stdout);
+        for (unsigned g = 0; g < comp->checked_permission.candidate_group_count; g++)
+        {
+            if (g)
+                putchar(',');
+            gid_t cg = comp->checked_permission.candidate_group_gids[g];
+            char cgbuf[16];
+            const char *cgname = gid_to_name(cg, cgbuf, sizeof(cgbuf));
+            printf("{\"gid\": %u, \"name\": ", (unsigned)cg);
+            json_print_string(cgname);
+            putchar('}');
+        }
+        putchar(']');
         putchar('}');
     }
     putchar('\n');

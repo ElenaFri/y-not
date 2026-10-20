@@ -292,7 +292,9 @@ static void check_missing_group_gid_in_json(void)
         .allowed = false, .reason = REASON_GROUP_MISSING,
         .source = PERMISSION_SOURCE_ACL_OTHER,
         .missing_group_gid = mock_group.gr_gid,
-        .missing_group_known = true};
+        .missing_group_known = true,
+        .candidate_group_gids = {mock_group.gr_gid, 9999},
+        .candidate_group_count = 2};
     AccessPath ap = {.components = comps, .count = 2};
     AccessResult result = {.allowed = false, .reason = REASON_GROUP_MISSING,
                            .blocked_path = comps[1].path, .access_path = &ap};
@@ -302,6 +304,10 @@ static void check_missing_group_gid_in_json(void)
     {
         CHECK(strstr(json, "\"reason\": \"group_missing\"") != NULL);
         CHECK(strstr(json, "\"missing_group_gid\": 1234") != NULL);
+        CHECK(strstr(json,
+                     "\"candidate_groups\": [{\"gid\": 1234, \"name\": "
+                     "\"y_not_test_group\"},{\"gid\": 9999, \"name\": "
+                     "\"9999\"}]") != NULL);
         free(json);
     }
     free_components(comps, 2);
