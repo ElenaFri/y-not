@@ -286,6 +286,36 @@ int main(void)
         acl_free(acl_group_masked);
     }
 
+    /* Candidate collection uses the requested operation bit, not just read.
+       Both groups survive the write mask and can independently grant write. */
+    acl_t acl_write_candidates = acl_from_text(
+        "user::rw-,group::---,group:2101:-w-,group:2102:-w-,mask::-w-,other::---");
+    CHECK(acl_write_candidates != NULL);
+    if (acl_write_candidates)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_WRITE,
+                                 acl_write_candidates);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 2);
+        CHECK(r.candidate_group_gids[0] == 2101);
+        CHECK(r.candidate_group_gids[1] == 2102);
+        acl_free(acl_write_candidates);
+    }
+
+    /* A minimal ACL without an explicit mask defaults to rwx. */
+    acl_t acl_without_mask = acl_from_text(
+        "user::rw-,group::r--,other::---");
+    CHECK(acl_without_mask != NULL);
+    if (acl_without_mask)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_without_mask);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 1002);
+        CHECK(!r.mask_applied && r.mask_permissions == 7);
+        acl_free(acl_without_mask);
+    }
+
     /* Execute permission is also subject to the ACL mask, both when granted
        and when denied. */
     acl_t acl_execute = acl_from_text(

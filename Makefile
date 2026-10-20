@@ -172,6 +172,16 @@ $(BUILDDIR)/test_user_lookup_mock: $(TESTDIR)/test_user_lookup_mock.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+# Inject deterministic allocation failures into user/path resolution to cover
+# cleanup and error-return paths without relying on real memory pressure.
+$(BUILDDIR)/test_resolve_failures: $(TESTDIR)/test_resolve_failures.c \
+    $(SRCDIR)/resolve/user.c $(SRCDIR)/resolve/path.c \
+    $(SRCDIR)/context/selinux_info.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -Wl,--wrap=malloc -Wl,--wrap=calloc \
+	    -Wl,--wrap=realloc -Wl,--wrap=strdup -Wl,--wrap=readlink \
+	    -Wl,--wrap=statvfs -o $@ $^ $(LDLIBS)
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 

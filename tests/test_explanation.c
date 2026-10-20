@@ -113,6 +113,43 @@ int main(void)
         1234, true,
         "you own this directory but lack traverse permission");
 
+    /* A missing-group denial on a parent component concerns traversal, not
+       the final requested operation. */
+    {
+        PathComponent components[3] = {0};
+        components[0].path = "/";
+        components[1].path = "/private";
+        components[1].st.st_mode = S_IFDIR | 0700;
+        components[1].checked_permission = (PermissionResult){
+            .reason = REASON_GROUP_MISSING,
+            .missing_group_gid = 1234,
+            .missing_group_known = true,
+        };
+        components[1].checked_permission_known = true;
+        components[2].path = "/private/target";
+        AccessPath access_path = {.components = components, .count = 3};
+        AccessResult result = {
+            .allowed = false, .reason = REASON_GROUP_MISSING,
+            .blocked_on_traversal = true, .blocked_path = components[1].path,
+            .access_path = &access_path,
+        };
+        char actual[256];
+        format_access_explanation(&result, ACCESS_WRITE, actual, sizeof(actual));
+        CHECK(strcmp(actual,
+                     "not in group \"y_not_test_group\" (which would allow traverse)") == 0);
+    }
+
+    /* The public formatter tolerates absent path metadata and small buffers. */
+    {
+        AccessResult result = {.allowed = false, .reason = REASON_NOT_FOUND};
+        char actual[8];
+        format_access_explanation(&result, ACCESS_READ, actual, sizeof(actual));
+        CHECK(actual[sizeof(actual) - 1] == '\0');
+        format_access_explanation(&result, ACCESS_READ, NULL, sizeof(actual));
+        format_access_explanation(&result, ACCESS_READ, actual, 0);
+        CHECK(strcmp(actual, "no such") == 0);
+    }
+
     /* Defensive: a candidate count beyond the array capacity must be clamped,
        never read past the fixed array. Under ASan an overrun would abort. */
     {
