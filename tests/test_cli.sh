@@ -62,6 +62,8 @@ expect_exit "--json allowed exits 0" 0 "$BIN" --json "$USER_NAME" read /usr/bin/
 expect_exit "--json denied exits 1" 1 "$BIN" --json "$USER_NAME" read /var/__y_not_no_such_path__
 expect_contains "--json has schema_version" "\"schema_version\": 1" \
     "$BIN" --json "$USER_NAME" read /usr/bin/ls
+expect_contains "--json reports MAC honestly" "\"evaluated\": false" \
+    "$BIN" --json "$USER_NAME" read /usr/bin/ls
 expect_contains "--json denied reports reason" "\"reason\": \"not_found\"" \
     "$BIN" --json "$USER_NAME" read /var/__y_not_no_such_path__
 expect_exit "--json unknown user exits 1" 1 "$BIN" --json __y_not_no_such_user__ read /etc/hosts

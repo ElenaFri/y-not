@@ -513,6 +513,81 @@ static void check_defensive_default_cases(void)
     free(comps[1].path);
 }
 
+/* MAC honesty: an "allowed" verdict under an active MAC module must carry a
+   prominent warning right under the verdict, since the kernel may still deny a
+   confined process. A permissive module, zero AppArmor profiles, or a denial
+   must not produce one. */
+static void check_mac_warning_on_allowed_verdict(void)
+{
+    PathComponent comps[1] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_read = true;
+    AccessPath ap = {.components = comps, .count = 1};
+    AccessResult allowed = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "alice"};
+
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 1};
+    mock_apparmor = (ApparmorStatus){0};
+    char *text = render_and_capture(&allowed, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "warning") != NULL);
+        CHECK(strstr(text, "SELinux is enforcing") != NULL);
+        CHECK(strstr(text, "does not evaluate mandatory access control") != NULL);
+        free(text);
+    }
+
+    /* Permissive SELinux cannot override an allow: no warning. */
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 0};
+    text = render_and_capture(&allowed, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "warning") == NULL);
+        free(text);
+    }
+
+    /* AppArmor with loaded profiles: warning names AppArmor. */
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){.available = true, .profile_count = 5};
+    text = render_and_capture(&allowed, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "AppArmor is active") != NULL);
+        free(text);
+    }
+
+    /* AppArmor enabled but zero profiles: nothing confined, no warning. */
+    mock_apparmor = (ApparmorStatus){.available = true, .profile_count = 0};
+    text = render_and_capture(&allowed, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "warning") == NULL);
+        free(text);
+    }
+
+    /* A denial is never flagged, even with both modules active. */
+    AccessResult denied = {.allowed = false, .reason = REASON_OWNER_DENIED,
+                           .blocked_path = comps[0].path, .access_path = &ap};
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 1};
+    mock_apparmor = (ApparmorStatus){.available = true, .profile_count = 5};
+    text = render_and_capture(&denied, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "warning") == NULL);
+        free(text);
+    }
+
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+    free(comps[0].path);
+}
+
 int main(void)
 {
     check_deep_tree_does_not_crash();
@@ -527,5 +602,6 @@ int main(void)
     check_file_caps_and_selinux_annotations();
     check_component_after_the_blocked_one();
     check_defensive_default_cases();
+    check_mac_warning_on_allowed_verdict();
     return TEST_SUMMARY();
 }

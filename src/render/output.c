@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "context/apparmor_info.h"
+#include "context/mac_warning.h"
 #include "context/selinux_info.h"
 
 #ifndef PATH_MAX
@@ -206,6 +207,10 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     if (result->access_path && result->access_path->count > 0)
         target = result->access_path->components[result->access_path->count - 1].path;
 
+    SelinuxStatus se = selinux_status();
+    ApparmorStatus aa = apparmor_status();
+    MacWarning mac = mac_warning_evaluate(result->allowed, se, aa);
+
     putchar('\n');
     if (result->allowed)
     {
@@ -220,17 +225,27 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
         format_access_explanation(result, op, explanation, sizeof(explanation));
         printf("  reason      %s\n", explanation);
     }
+
+    /* MAC honesty: when the DAC/ACL verdict is "allowed" but a mandatory
+       access control module is active, say so right under the verdict. The
+       kernel may still deny a confined process, and y-not does not model that,
+       so an admin must never read an "allowed" here as "the access is free". */
+    if (mac.may_override_verdict)
+    {
+        char warn[256];
+        mac_warning_message(mac, warn, sizeof(warn));
+        printf("\n  warning     %s\n", warn);
+    }
+
     putchar('\n');
     render_tree(result, op);
     putchar('\n');
 
     /* MAC status: only shown when something is actually active, to avoid
        cluttering the common case of a plain DAC/ACL-only system. */
-    SelinuxStatus se = selinux_status();
     if (se.available)
         printf("SELinux: %s\n", se.enforcing == 1 ? "enforcing" : "permissive");
 
-    ApparmorStatus aa = apparmor_status();
     if (aa.available)
     {
         if (aa.profile_count >= 0)

@@ -1,5 +1,7 @@
 #include "../include/render/json_output.h"
 #include "../include/access.h"
+#include "../include/context/apparmor_info.h"
+#include "../include/context/selinux_info.h"
 #include "../include/resolve/user.h"
 #include "testlib.h"
 
@@ -21,6 +23,22 @@ static struct group mock_group = {.gr_name = "y_not_test_group", .gr_gid = 1234}
 struct group *getgrgid(gid_t gid)
 {
     return gid == mock_group.gr_gid ? &mock_group : NULL;
+}
+
+/* json_output.c queries these to emit the "mac" object; mock them so tests are
+   deterministic regardless of the host's actual MAC configuration. Default is
+   "no MAC active" so the common cases below never emit a warning. */
+static SelinuxStatus mock_selinux;
+static ApparmorStatus mock_apparmor;
+
+SelinuxStatus selinux_status(void)
+{
+    return mock_selinux;
+}
+
+ApparmorStatus apparmor_status(void)
+{
+    return mock_apparmor;
 }
 
 typedef struct
@@ -589,6 +607,77 @@ static void check_unresolvable_uid_gid(void)
     free_components(comps, 2);
 }
 
+/* The "mac" object is always present and documents MAC honestly: "evaluated"
+   is always false, and only an allowed verdict under an active module sets
+   "may_override_verdict" true with a non-null warning. */
+static void check_mac_block_in_json(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult allowed = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+
+    /* No MAC active: the block is present, evaluated false, warning null. */
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+    char *json = render_and_capture(&allowed, "alice", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"mac\": {") != NULL);
+        CHECK(strstr(json, "\"selinux\": {\"available\": false, \"enforcing\": null}") != NULL);
+        CHECK(strstr(json, "\"apparmor\": {\"available\": false, \"profiles_loaded\": null}") != NULL);
+        CHECK(strstr(json, "\"evaluated\": false") != NULL);
+        CHECK(strstr(json, "\"may_override_verdict\": false") != NULL);
+        CHECK(strstr(json, "\"warning\": null") != NULL);
+        free(json);
+    }
+
+    /* SELinux enforcing + AppArmor profiles, allowed: warning is populated. */
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 1};
+    mock_apparmor = (ApparmorStatus){.available = true, .profile_count = 4};
+    json = render_and_capture(&allowed, "alice", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"selinux\": {\"available\": true, \"enforcing\": true}") != NULL);
+        CHECK(strstr(json, "\"apparmor\": {\"available\": true, \"profiles_loaded\": 4}") != NULL);
+        CHECK(strstr(json, "\"may_override_verdict\": true") != NULL);
+        CHECK(strstr(json, "\"warning\": \"this verdict covers DAC/ACL only") != NULL);
+        CHECK(strstr(json, "SELinux is enforcing and AppArmor is active") != NULL);
+        free(json);
+    }
+
+    /* A denial under active MAC: present but not flagged (DAC before MAC). */
+    AccessResult denied = {.allowed = false, .reason = REASON_OWNER_DENIED,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    comps[1].denial_reason = REASON_OWNER_DENIED;
+    json = render_and_capture(&denied, "alice", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"may_override_verdict\": false") != NULL);
+        CHECK(strstr(json, "\"warning\": null") != NULL);
+        free(json);
+    }
+
+    /* user-not-found envelope also carries the mac block for schema uniformity. */
+    mock_selinux = (SelinuxStatus){.available = true, .enforcing = 0};
+    json = user_not_found_and_capture("nosuchuser", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"mac\": {") != NULL);
+        CHECK(strstr(json, "\"selinux\": {\"available\": true, \"enforcing\": false}") != NULL);
+        CHECK(strstr(json, "\"may_override_verdict\": false") != NULL);
+        free(json);
+    }
+
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+    free_components(comps, 2);
+}
+
 int main(void)
 {
     check_allowed_case();
@@ -605,5 +694,6 @@ int main(void)
     check_every_reason_message();
     check_control_character_escaping();
     check_unresolvable_uid_gid();
+    check_mac_block_in_json();
     return TEST_SUMMARY();
 }

@@ -74,10 +74,16 @@ Same, using the short form:
 .B y-not
 models Unix permissions and POSIX ACLs and applies read-only/noexec mount
 restrictions. pam_cap grants are only an approximation of process capabilities;
-SELinux and AppArmor status are reported for context, but neither changes the
-allow/deny verdict: SELinux policy
-evaluation and AppArmor's per-program confinement do not fit into a
-single user/operation/path query. Read-only and noexec mount options are
+SELinux and AppArmor do not change the allow/deny verdict: SELinux policy
+evaluation and AppArmor's per-program confinement do not fit into a single
+user/operation/path query. When the verdict is
+.I allowed
+and SELinux is enforcing or AppArmor has loaded profiles, y-not prints a
+prominent warning that the kernel may still deny a confined process (and sets
+.B may_override_verdict
+in the JSON
+.B mac
+object). Read-only and noexec mount options are
 included in the verdict; nosuid is informational. Mount options are read from
 y-not's own mount namespace, which may differ from the target process's
 namespace. Directory write checks model entry creation (write plus traversal),

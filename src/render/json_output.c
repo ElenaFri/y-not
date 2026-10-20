@@ -1,6 +1,10 @@
 #include "render/json_output.h"
 #include "render/explanation.h"
 
+#include "context/apparmor_info.h"
+#include "context/mac_warning.h"
+#include "context/selinux_info.h"
+
 #include <grp.h>
 #include <pwd.h>
 #include <stdio.h>
@@ -189,6 +193,54 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     printf("    }");
 }
 
+/* The "mac" object documents mandatory access control honestly: y-not never
+   evaluates MAC policy ("evaluated": false), so when a module is active and the
+   verdict is "allowed", "may_override_verdict" is true and "warning" carries the
+   human-readable caveat - the same one the text renderer prints. */
+static void print_mac(bool allowed)
+{
+    SelinuxStatus se = selinux_status();
+    ApparmorStatus aa = apparmor_status();
+    MacWarning mac = mac_warning_evaluate(allowed, se, aa);
+
+    fputs("  \"mac\": {\n", stdout);
+
+    fputs("    \"selinux\": {\"available\": ", stdout);
+    fputs(se.available ? "true" : "false", stdout);
+    fputs(", \"enforcing\": ", stdout);
+    if (se.available)
+        fputs(se.enforcing == 1 ? "true" : "false", stdout);
+    else
+        fputs("null", stdout);
+    fputs("},\n", stdout);
+
+    fputs("    \"apparmor\": {\"available\": ", stdout);
+    fputs(aa.available ? "true" : "false", stdout);
+    fputs(", \"profiles_loaded\": ", stdout);
+    if (aa.available && aa.profile_count >= 0)
+        printf("%d", aa.profile_count);
+    else
+        fputs("null", stdout);
+    fputs("},\n", stdout);
+
+    fputs("    \"evaluated\": false,\n", stdout);
+    printf("    \"may_override_verdict\": %s,\n",
+           mac.may_override_verdict ? "true" : "false");
+
+    fputs("    \"warning\": ", stdout);
+    if (mac.may_override_verdict)
+    {
+        char warn[256];
+        mac_warning_message(mac, warn, sizeof(warn));
+        json_print_string(warn);
+    }
+    else
+    {
+        fputs("null", stdout);
+    }
+    fputs("\n  },\n", stdout);
+}
+
 static void print_header(const char *username, AccessOperation op, const char *path)
 {
     printf("{\n");
@@ -218,7 +270,9 @@ void render_result_json(const AccessResult *result, const char *username,
     json_print_string(explanation);
     printf(",\n  \"blocked_at\": ");
     json_print_string_or_null(result->blocked_path);
-    printf(",\n  \"trace\": [\n");
+    printf(",\n");
+    print_mac(result->allowed);
+    printf("  \"trace\": [\n");
 
     if (result->access_path)
     {
@@ -263,6 +317,7 @@ void render_user_not_found_json(const char *username, AccessOperation op,
     printf("  \"explanation\": ");
     json_print_string(explanation);
     printf(",\n  \"blocked_at\": null,\n");
+    print_mac(false);
     printf("  \"trace\": []\n");
     printf("}\n");
 }
