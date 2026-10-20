@@ -264,6 +264,26 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             putchar(')');
         }
         putchar('\n');
+        if (is_block && comp->checked_permission_known)
+        {
+            static const char *sources[] = {"none", "Unix owner bits", "Unix group bits",
+                "Unix other bits", "ACL owner entry", "named ACL user entry",
+                "matching ACL group entries", "ACL other entry", "root DAC override",
+                "CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "mount restriction"};
+            unsigned bits = comp->checked_permission.entry_permissions;
+            char entry[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+            bits = comp->checked_permission.effective_permissions;
+            char effective[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+            PermissionSource source = comp->checked_permission.source;
+            printf("    decision    %s: %s", source <= PERMISSION_SOURCE_MOUNT ? sources[source] : "unknown", entry);
+            if (comp->checked_permission.mask_applied)
+            {
+                bits = comp->checked_permission.mask_permissions;
+                char mask[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+                printf(" & ACL mask %s = %s", mask, effective);
+            }
+            putchar('\n');
+        }
     }
 }
 

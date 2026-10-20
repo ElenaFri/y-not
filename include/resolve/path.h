@@ -22,6 +22,8 @@ typedef struct
     bool can_read;
     bool can_write;
     bool can_execute;
+    PermissionResult checked_permission;
+    bool checked_permission_known;
     AccessReason denial_reason;
 } PathComponent;
 

@@ -176,6 +176,22 @@ static void build_explanation(const AccessResult *result, AccessOperation op,
     }
 }
 
+static const char *permission_source_name(PermissionSource source)
+{
+    static const char *names[] = {"none", "unix_owner", "unix_group", "unix_other",
+        "acl_owner", "acl_user", "acl_group", "acl_other", "dac_override",
+        "cap_dac_override", "cap_dac_read_search", "mount"};
+    return source <= PERMISSION_SOURCE_MOUNT ? names[source] : "unknown";
+}
+
+static void permission_text(unsigned bits, char out[4])
+{
+    out[0] = bits & 4u ? 'r' : '-';
+    out[1] = bits & 2u ? 'w' : '-';
+    out[2] = bits & 1u ? 'x' : '-';
+    out[3] = '\0';
+}
+
 static void print_trace_component(const PathComponent *comp, bool checked_full_op,
                                   bool is_blocked, AccessOperation op, bool *first)
 {
@@ -226,7 +242,18 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
            comp->mount_nosuid ? "true" : "false");
     printf("      \"has_acl\": %s,\n", comp->acl ? "true" : "false");
     printf("      \"checked\": \"%s\",\n", checked_full_op ? op_name(op) : "enter");
-    printf("      \"allowed\": %s\n", is_blocked ? "false" : "true");
+    printf("      \"allowed\": %s", is_blocked ? "false" : "true");
+    if (comp->checked_permission_known)
+    {
+        char entry[4], effective[4], mask[4];
+        permission_text(comp->checked_permission.entry_permissions, entry);
+        permission_text(comp->checked_permission.effective_permissions, effective);
+        permission_text(comp->checked_permission.mask_permissions, mask);
+        printf(",\n      \"decision\": {\"source\": \"%s\", \"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": %s, \"mask_permissions\": \"%s\"}",
+               permission_source_name(comp->checked_permission.source), entry, effective,
+               comp->checked_permission.mask_applied ? "true" : "false", mask);
+    }
+    putchar('\n');
     printf("    }");
 }
 

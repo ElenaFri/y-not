@@ -100,6 +100,13 @@ static void make_root_and_target(PathComponent comps[2], const char *target_path
     comps[0].st.st_mode = S_IFDIR | 0755;
     comps[1].path = strdup(target_path);
     comps[1].st.st_mode = target_mode;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = true, .reason = REASON_NONE,
+        .source = PERMISSION_SOURCE_ACL_USER,
+        .entry_permissions = 6, .effective_permissions = 4,
+        .mask_permissions = 4, .mask_applied = true,
+    };
 }
 
 static void free_components(PathComponent *comps, size_t n)
@@ -129,6 +136,9 @@ static void check_allowed_case(void)
         CHECK(strstr(json, "\"blocked_at\": null") != NULL);
         CHECK(strstr(json, "\"checked\": \"read\"") != NULL);
         CHECK(strstr(json, "\"mount_flags\": {\"known\": false") != NULL);
+        CHECK(strstr(json, "\"decision\": {\"source\": \"acl_user\"") != NULL);
+        CHECK(strstr(json, "\"entry_permissions\": \"rw-\"") != NULL);
+        CHECK(strstr(json, "\"effective_permissions\": \"r--\"") != NULL);
         free(json);
     }
 

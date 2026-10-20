@@ -3,59 +3,48 @@
 [![CI](https://github.com/ElenaFri/y-not/actions/workflows/ci.yml/badge.svg)](https://github.com/ElenaFri/y-not/actions/workflows/ci.yml)
 [![codecov](https://codecov.io/gh/ElenaFri/y-not/graph/badge.svg)](https://codecov.io/gh/ElenaFri/y-not)
 
-A small Linux CLI that explains why a user can or cannot access a file or directory.
+> **Why can't I access this file?**
 
-Instead of piecing together information from `ls`, `namei`, `id`, `getfacl` and other similar tools, `y-not` traces the access path and identifies what is blocking access.
+`y-not` is a Linux CLI that checks whether a named user can read, write or execute a path, then explains the first blocking component and the permission decision it evaluated. It is designed to make a path-specific diagnosis easier to verify than manually combining `ls`, `namei`, `id` and `getfacl` output.
 
-## The problem
+## A common diagnosis
 
-`ls -l` on a file shows its permissions — but not whether a user can actually
-reach it. Access also requires the traversal bit (`x`) on **every** parent
-directory; one parent without it blocks access, and `ls -l` on the file won't
-reveal why:
+The file itself looks readable to everyone:
 
 ```text
-$ ls -l /tmp/demo/project/report.txt
--rw-r--r-- 1 elena_f elena_f 11 Oct 20 06:29 /tmp/demo/project/report.txt   # looks readable
+$ ls -l /srv/private/report.txt
+-rw-r--r-- 1 alice alice 1200 ... /srv/private/report.txt
+```
 
-$ y-not nobody read /tmp/demo/project/report.txt
+But the user cannot reach it because a parent directory is not searchable:
 
-nobody cannot read /tmp/demo/project/report.txt
+```text
+$ y-not bob read /srv/private/report.txt
 
-  blocked at  /tmp/demo/project
+bob cannot read /srv/private/report.txt
+
+  blocked at  /srv/private
   reason      no traverse permission: not the owner and not in the directory's group
 
   /                           drwxr-xr-x  root:root   enter    ok
-  └── tmp                     drwxrwxrwx  root:root   enter    ok  (mount: nosuid)
-      └── demo                drwxr-xr-x  elena_f:elena_f   enter    ok  (mount: nosuid)
-          └── project         drwx------  elena_f:elena_f   enter    BLOCKED  (mount: nosuid)
-              └── report.txt
-
-AppArmor: enabled (profile count needs elevated privilege)
+  └── srv                     drwxr-xr-x  root:root   enter    ok
+      └── private             drwx------  alice:alice enter    BLOCKED
+          └── report.txt
 ```
 
-Mount annotations and SELinux/AppArmor status depend on the host; the output
-above was captured on a system where `/tmp` is mounted `nosuid` and AppArmor
-is enabled.
+The trace shows the first component that prevents the requested operation. A directory must grant search (`x`) permission for each path component leading to the target; checking only the target's `ls -l` line misses that.
 
-The file is world-readable, but `/tmp/demo/project` is not traversable by
-`nobody`. `y-not` points at the exact component that blocks access, and why.
+For a permission denied by an ACL, the trace also shows the selected ACL source, its raw permissions, and (where applicable) the effective permissions after the ACL mask. This helps distinguish an entry that grants `rw-` from the effective `r--` result imposed by a mask.
 
 ## Install
 
-The release package is currently built for **amd64**. Download the `.deb` from
-[GitHub Releases](https://github.com/ElenaFri/y-not/releases), then install it
-with APT so runtime dependencies are resolved automatically:
+Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:
 
 ```sh
 sudo apt install ./y-not_*.deb
 ```
 
-The package declares runtime library version requirements generated from the
-binary, including `libc6 (>= 2.34)`; APT refuses installation when the system
-is too old. For a source install, see [Build & test](#build--test); `make install`
-installs under `/usr/local` and therefore needs `sudo`, or set `PREFIX` to a
-user-writable location such as `~/.local`.
+The package's runtime dependencies are generated from the linked binary. The released package targets amd64 and requires a sufficiently recent Debian-family system; APT will report unmet library-version requirements if the host is too old. For other architectures, build from source.
 
 ## Usage
 
@@ -63,119 +52,51 @@ user-writable location such as `~/.local`.
 y-not [--json] USER OPERATION PATH
 ```
 
-`OPERATION` accepts `read`/`r`, `write`/`w`, or `execute`/`x`. On a directory,
-`read` checks permission to list names, `execute` checks traversal, and
-`write` checks whether the user can create an entry (requiring both write and
-traversal permission). A generic path check cannot determine whether removing
-or renaming a particular entry is permitted: that also depends on the entry
-and, for sticky directories such as `/tmp`, its ownership. `--json` (must
-come first) emits a machine-readable JSON document instead of text — see
-[JSON output](#json-output) below.
-
-## Build & test
+`OPERATION` is `read`/`r`, `write`/`w` or `execute`/`x`. `--json` must appear first.
 
 ```sh
-make          # release build ./y-not
-make debug    # with ASan/UBSan
-make check    # run all unit tests (always built with ASan/UBSan)
-sudo make install  # install to /usr/local/bin (PREFIX= to override)
+y-not alice read /srv/project/report.pdf
+y-not --json alice write /srv/project
 ```
 
-## JSON output
+On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). This generic check does not decide whether a particular entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
 
-`y-not --json USER OPERATION PATH` prints a document instead of text:
+The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. `reason` is a machine-readable reason code. Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
 
-```json
-{
-  "schema_version": 1,
-  "user": "alice",
-  "operation": "write",
-  "path": "/srv/project/report.pdf",
-  "allowed": false,
-  "reason": "group_missing",
-  "explanation": "not in group \"developers\" (which would allow traverse)",
-  "blocked_at": "/srv/project",
-  "trace": [ ... ]
-}
+## What is checked
+
+- Unix owner/group/other mode bits and supplementary group membership.
+- POSIX ACL owner, named-user, group and other entries, including the effective ACL mask.
+- Root's DAC override behavior and grants listed in `/etc/security/capability.conf` for pam_cap.
+- Read-only (`ro`) and `noexec` mount restrictions visible in y-not's mount namespace.
+- The path trace, symbolic links, missing components, broken links and symlink loops.
+
+## Limits and scope
+
+`y-not` is a diagnostic model, not a kernel access probe. It does not execute the requested operation as the target user, and its verdict does not account for every condition that can affect a real process.
+
+- **SELinux and AppArmor are informational only.** Their status/context may be displayed, but neither changes the allow/deny verdict. AppArmor confinement is process/profile-specific and cannot be inferred from a user, operation and path alone.
+- **Capabilities are approximated.** pam_cap grants are read from `/etc/security/capability.conf`; file capabilities are displayed, but y-not does not simulate the effective capability set of an actual target process.
+- **Mount flags are namespace-specific.** `ro` and `noexec` affect the modeled result; `nosuid` is reported as context only. A service or container in another mount namespace may see different flags.
+- **Writes to directories mean creating a name.** Removal/rename checks, sticky-bit ownership rules, ACL inheritance, races between inspection and use, and application-specific behavior are outside this check.
+- **Kernel and security-module behavior remains authoritative.** The actual result can also depend on the process credentials, namespaces, filesystem implementation and active security policy.
+
+## Build and test
+
+Build dependencies are a C compiler, GNU make, `libacl`, `libcap` and `libselinux` development headers/libraries.
+
+```sh
+make             # optimized binary ./y-not
+make debug       # debug build with sanitizers
+make check       # automated tests
+sudo make install
+sudo make uninstall
 ```
 
-`reason` is a stable machine code (see `reason_code()` in `src/render/json_output.c`
-for the full list); `explanation` is the same human sentence the text
-renderer would print. Each resolved trace component includes the mount flags
-visible to y-not (`known`, `read_only`, `noexec`, `nosuid`). `trace` lists each
-path component up to and including the blocked one — nothing past that point is
-revealed, matching the text renderer. The exit code contract (0 allowed / 1 denied) is unchanged, and
-`--json` always emits a valid document, even for an unknown user or a path
-that couldn't be resolved at all.
+`make install` installs under `/usr/local` by default and needs permission to write there. Override the prefix for an unprivileged install, for example `make install PREFIX="$HOME/.local"`.
 
-## Architecture
+## Project and releases
 
-The engine never knows what's on the terminal. It receives a user, an operation and a path, and produces a structured result. The renderer turns that result into human-readable output.
-
-```text
-src/
-├── main.c              argument parsing, entry point
-├── access.c            orchestrate the modules below, return the first blocking point
-├── resolve/            turn raw strings into structured data
-│   ├── user.c              resolve uid, primary gid and supplementary groups
-│   └── path.c              inspect lexical prefixes with stat(2)/lstat(2)/statvfs(2)
-├── permissions/        the access-decision engine
-│   ├── mode_bits.c         shared owner/group/other bit checks and group membership
-│   ├── permissions.c       DAC/ACL/capability checks and mount restrictions
-│   ├── acl_eval.c          full POSIX ACL evaluation algorithm
-│   └── capabilities.c      CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH via capability.conf
-├── context/            informational only - never changes the verdict
-│   ├── selinux_info.c      SELinux status and per-file context
-│   └── apparmor_info.c     AppArmor status and loaded profile count
-└── render/             turn an AccessResult into output
-    ├── output.c            human-readable text
-    └── json_output.c       JSON (schema_version 1)
-```
-
-`include/` mirrors this layout one-to-one.
-
-The key invariant: `check_access()` builds a complete `AccessResult`(with
-`blocked_path` and `reason`) before any output is produced. Tests can
-therefore assert on the result directly, without parsing terminal output.
-
-## Goals
-
-- Explain effective file access on Linux
-- Show where access is blocked
-- Explain Unix owner/group/mode permissions
-- Handle supplementary groups
-- Support POSIX ACLs
-- Account for read-only and `noexec` mount restrictions; report `nosuid` context
-- Provide clear, human-readable output
-- Stay small, fast and dependency-light
-
-## Known limitations
-
-- **Linux capabilities are approximated.** y-not reads grants from
-  `/etc/security/capability.conf` (pam_cap) and displays file capabilities, but
-  does not simulate the effective capabilities of an actual target process.
-- **SELinux/AppArmor are informational only.** Neither changes the allow/deny
-  verdict. AppArmor confines programs, not users, so a per-file check does not
-  fit the `USER OPERATION PATH` model.
-- **Mount options are read in y-not's mount namespace.** `ro` and `noexec`
-  affect the verdict; `nosuid` is reported but does not change the file-access
-  verdict. A container or service running in another mount namespace may see
-  different options.
-- **Directory writes are creation checks.** y-not checks write plus traversal
-  permission for creating an entry. It cannot determine whether a particular
-  file can be removed or renamed without that entry's name and ownership; sticky
-  directories such as `/tmp` add that condition.
-- **ACL mask vs. mode bits.** When a file has an extended ACL, the group bits
-  reported by `stat()` mirror the ACL mask, not the owning group's real
-  permissions. The `GROUP_MISSING` fallback reason uses those bits as a
-  heuristic, which can be misleading in rare ACL configurations.
-- **`getgrouplist()` growth loop is untested.** Simulating a user in more than
-  64 groups would require a real system account; not exercised in CI.
-- **Allocation-failure paths are untested.** `malloc`/`strdup`/`realloc`
-  failures throughout the codebase are handled but not exercised, since
-  reliably simulating OOM without a fragile allocator wrapper isn't practical.
-  A `getcwd()` failure and a symlink-removed-mid-`lstat()`/`stat()` race in
-  `path.c` fall in the same category.
-- **CI runs as root** (see `.github/workflows/ci.yml`), which flips which
-  conditional tests execute compared to a typical non-root development
-  machine. Codecov's reported percentage may differ slightly from a local run.
+- Source, issue tracker and changelog: [GitHub repository](https://github.com/ElenaFri/y-not)
+- Published versions: [GitHub Releases](https://github.com/ElenaFri/y-not/releases)
+- License: [LICENSE](LICENSE)

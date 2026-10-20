@@ -117,13 +117,10 @@ int main(void)
         r = evaluate_permissions(&acl_alice, &st_acl, ACCESS_READ, acl1);
         CHECK(r.allowed && r.reason == REASON_NONE);
 
-        /* a stranger falls through to ACL_OTHER (denied here); since the
-           file's group-class mode bits (0640 = group r--) would have
-           allowed it, the reason must say GROUP_MISSING, not OTHER_DENIED -
-           the same nuance as the non-ACL path, but never exercised through
-           evaluate_acl() until now. */
+        /* The mode mask has read set, but no group ACL entry actually grants
+           it. Do not infer a hypothetical grant from stat()'s group bits. */
         r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ, acl1);
-        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(!r.allowed && r.reason == REASON_OTHER_DENIED);
 
         acl_free(acl1);
     }
@@ -135,8 +132,13 @@ int main(void)
     {
         r = evaluate_permissions(&acl_alice, &st_acl, ACCESS_READ, acl2);
         CHECK(r.allowed);
+        CHECK(r.source == PERMISSION_SOURCE_ACL_USER);
+        CHECK(r.entry_permissions == 6 && r.effective_permissions == 4);
+        CHECK(r.mask_applied && r.mask_permissions == 4);
         r = evaluate_permissions(&acl_alice, &st_acl, ACCESS_WRITE, acl2);
         CHECK(!r.allowed && r.reason == REASON_ACL_DENIED);
+        CHECK(r.source == PERMISSION_SOURCE_ACL_USER);
+        CHECK(r.entry_permissions == 6 && r.effective_permissions == 4);
         acl_free(acl2);
     }
 

@@ -64,8 +64,12 @@ AccessResult check_access(const User *user,
                 comp->mount_flags_known, comp->mount_read_only,
                 comp->mount_noexec, &comp->st, operation);
             if (mount_reason != REASON_NONE)
-                check = (PermissionResult){.allowed = false, .reason = mount_reason};
+                check = (PermissionResult){.allowed = false, .reason = mount_reason,
+                                           .source = PERMISSION_SOURCE_MOUNT};
         }
+
+        comp->checked_permission = check;
+        comp->checked_permission_known = true;
 
         if (!check.allowed)
         {

@@ -28,10 +28,31 @@ typedef enum
     REASON_MOUNT_NOEXEC,
 } AccessReason;
 
+typedef enum
+{
+    PERMISSION_SOURCE_NONE,
+    PERMISSION_SOURCE_UNIX_OWNER,
+    PERMISSION_SOURCE_UNIX_GROUP,
+    PERMISSION_SOURCE_UNIX_OTHER,
+    PERMISSION_SOURCE_ACL_OWNER,
+    PERMISSION_SOURCE_ACL_USER,
+    PERMISSION_SOURCE_ACL_GROUP,
+    PERMISSION_SOURCE_ACL_OTHER,
+    PERMISSION_SOURCE_DAC_OVERRIDE,
+    PERMISSION_SOURCE_CAP_DAC_OVERRIDE,
+    PERMISSION_SOURCE_CAP_DAC_READ_SEARCH,
+    PERMISSION_SOURCE_MOUNT,
+} PermissionSource;
+
 typedef struct
 {
     bool allowed;
     AccessReason reason;
+    PermissionSource source;
+    unsigned entry_permissions;     /* rwx bitset: read=4, write=2, execute=1 */
+    unsigned effective_permissions; /* entry after ACL mask, when applicable */
+    unsigned mask_permissions;
+    bool mask_applied;
 } PermissionResult;
 
 PermissionResult evaluate_permissions(const User *user,
