@@ -5,7 +5,7 @@
 
 > **Why can't I access this file?**
 
-`y-not` is a Linux CLI that checks whether a named user can read, write or execute a path, then explains the first blocking component and the permission decision it evaluated. It is designed to make a path-specific diagnosis easier to verify than manually combining `ls`, `namei`, `id` and `getfacl` output.
+`y-not` is a Linux CLI that checks whether a named user has permission to read, write or attempt to execute a path, then explains the first blocking component and the permission decision it evaluated. It is designed to make a path-specific diagnosis easier to verify than manually combining `ls`, `namei`, `id` and `getfacl` output.
 
 ## A common diagnosis
 
@@ -89,7 +89,7 @@ y-not alice read /srv/project/report.pdf
 y-not --json alice write /srv/project
 ```
 
-On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). This generic check does not decide whether a particular entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
+On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. This generic check does not decide whether a particular directory entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
 
 The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. When missing group membership explains a denial, `missing_group_gid` identifies one group whose permissions would grant the requested operation; for ACLs, the effective rights after the ACL mask are used. This identifies a relevant group, not every possible group membership. `reason` is a machine-readable reason code. Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
 

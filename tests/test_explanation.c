@@ -80,6 +80,17 @@ int main(void)
         "in group \"y_not_test_group\" but the group has no write permission");
 
     check_explanation(
+        REASON_OTHER_DENIED, ACCESS_EXECUTE,
+        (PermissionResult){
+            .reason = REASON_OTHER_DENIED,
+            .source = PERMISSION_SOURCE_UNIX_OTHER,
+            .entry_permissions = 4,
+            .effective_permissions = 4,
+        },
+        0, false,
+        "file is not marked executable for this user");
+
+    check_explanation(
         REASON_OWNER_DENIED, ACCESS_READ,
         (PermissionResult){.reason = REASON_OWNER_DENIED},
         1234, true,

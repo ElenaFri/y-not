@@ -105,9 +105,13 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
                  "ACL entry found for you but it does not grant %s permission", operation);
         break;
     case REASON_OTHER_DENIED:
-        snprintf(buffer, buffer_size,
-                 "no %s permission: not the owner and not in the %s",
-                 operation, group_object);
+        if (op == ACCESS_EXECUTE && blocked && S_ISREG(blocked->st.st_mode))
+            snprintf(buffer, buffer_size,
+                     "file is not marked executable for this user");
+        else
+            snprintf(buffer, buffer_size,
+                     "no %s permission: not the owner and not in the %s",
+                     operation, group_object);
         break;
     case REASON_NOT_TRAVERSABLE:
         snprintf(buffer, buffer_size, "cannot enter this directory");

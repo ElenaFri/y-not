@@ -44,7 +44,9 @@ Can the user read the file, or read directory entries to list their names?
 Can the user write to the file, or create an entry in the directory? Creating an entry requires both write and traversal permission. Whether a particular entry can be removed or renamed also depends on that entry and the sticky bit; y-not cannot decide that without an entry name.
 .TP
 .B execute\fR, \fBx
-Can the user execute the file, or traverse into the directory?
+For a regular file, checks whether the user has permission to attempt execution;
+y-not does not validate the executable format or check whether its interpreter
+or loader is available. For a directory, checks search/traversal permission.
 .SH OPTIONS
 .TP
 .B \-\-json

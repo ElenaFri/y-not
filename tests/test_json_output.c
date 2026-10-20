@@ -518,7 +518,10 @@ static void check_every_reason_message(void)
         AccessResult result = {.allowed = false, .reason = g_reasons[i].reason,
                                .blocked_path = comps[1].path, .access_path = &ap};
 
-        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+        AccessOperation operation = g_reasons[i].reason == REASON_OTHER_DENIED
+                                        ? ACCESS_EXECUTE
+                                        : ACCESS_READ;
+        char *json = render_and_capture(&result, "alice", operation, "/target");
         CHECK(json != NULL);
         if (json)
         {
@@ -528,6 +531,8 @@ static void check_every_reason_message(void)
             CHECK(strstr(json, g_reasons[i].stat_failed
                              ? "\"resolved\": false"
                              : "\"resolved\": true") != NULL);
+            if (g_reasons[i].reason == REASON_OTHER_DENIED)
+                CHECK(strstr(json, "file is not marked executable for this user") != NULL);
             free(json);
         }
 
