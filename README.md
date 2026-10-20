@@ -36,6 +36,36 @@ The trace shows the first component that prevents the requested operation. A dir
 
 For a permission denied by an ACL, the trace also shows the selected ACL source, its raw permissions, and (where applicable) the effective permissions after the ACL mask. This helps distinguish an entry that grants `rw-` from the effective `r--` result imposed by a mask.
 
+## ACL mask: why an entry granting `rw-` can still deny writes
+
+A named ACL entry can grant write permission while the ACL mask removes it from the effective permissions. This example requires the `acl` package and a local `nobody` account:
+
+```sh
+demo=$(mktemp -d)
+trap 'rm -rf "$demo"' EXIT
+mkdir "$demo/release"
+printf 'customer_id,total\n42,125.00\n' > "$demo/release/report.csv"
+ln -s "$demo/release/report.csv" "$demo/latest-report.csv"
+chmod 755 "$demo" "$demo/release"
+chmod 600 "$demo/release/report.csv"
+setfacl -m u:nobody:rw-,m:r-- "$demo/release/report.csv"
+y-not nobody write "$demo/latest-report.csv"
+```
+
+The ACL entry says `rw-`, but its mask limits the effective rights to `r--`. The text output identifies the selected entry and the mask at the blocked file:
+
+```text
+nobody cannot write /tmp/demo/latest-report.csv
+
+  blocked at  /tmp/demo/latest-report.csv
+  reason      ACL entry found for you but it does not grant write permission
+
+          └── latest-report.csv -> /tmp/demo/release/report.csv  -rw-r-----  alice:alice   write    BLOCKED
+    decision    named ACL user entry: rw- & ACL mask r-- = r--
+```
+
+The temporary path and owner/group names vary on your system. This checks the ACL metadata for `nobody`; y-not does not run the write operation as that account.
+
 ## Install
 
 Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:
