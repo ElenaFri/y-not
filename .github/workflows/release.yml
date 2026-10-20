@@ -33,6 +33,17 @@ jobs:
             - name: Build .deb package
               run: make deb
 
+            - name: Prepare release notes
+              run: |
+                  version="${GITHUB_REF_NAME#v}"
+                  awk -v version="$version" '
+                      index($0, "## v" version " ") == 1 { found=1; in_release=1; next }
+                      in_release && /^## / { exit }
+                      in_release { print }
+                      END { if (!found) exit 1 }
+                  ' CHANGELOG.md > build/release-notes.md
+                  test -s build/release-notes.md
+
             - name: Install GitHub CLI
               run: |
                   curl --proto '=https' --tlsv1.2 -fsSL \
@@ -43,11 +54,20 @@ jobs:
                   apt-get update
                   apt-get install -y gh
 
-            - name: Upload .deb to the GitHub release
+            - name: Publish package and changelog notes
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
-                  gh release upload "${GITHUB_REF_NAME}" build/*.deb --clobber \
-                      --repo "${GITHUB_REPOSITORY}" || \
-                  gh release create "${GITHUB_REF_NAME}" build/*.deb \
-                      --repo "${GITHUB_REPOSITORY}" --title "${GITHUB_REF_NAME}" --generate-notes
+                  if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+                      gh release upload "${GITHUB_REF_NAME}" build/*.deb --clobber \
+                          --repo "${GITHUB_REPOSITORY}"
+                      gh release edit "${GITHUB_REF_NAME}" \
+                          --title "${GITHUB_REF_NAME}" \
+                          --notes-file build/release-notes.md \
+                          --repo "${GITHUB_REPOSITORY}"
+                  else
+                      gh release create "${GITHUB_REF_NAME}" build/*.deb \
+                          --repo "${GITHUB_REPOSITORY}" \
+                          --title "${GITHUB_REF_NAME}" \
+                          --notes-file build/release-notes.md
+                  fi

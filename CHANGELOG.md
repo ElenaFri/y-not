@@ -4,6 +4,8 @@ All notable changes to `y-not` are documented here.
 
 ## v1.2.0 — Path and mount access accuracy
 
+More accurate Linux access checks across symlink paths, directory writes, and mount restrictions.
+
 - Preserve lexical `.` and `..` path components so the kernel resolves them after following preceding symlinks; reject empty pathnames and honor trailing-slash directory requirements
 - Require both write and traversal permission to create entries in a directory; report traversal denials distinctly and correctly model root's directory-search bypass
 - Include read-only and `noexec` mount restrictions in access decisions; report `nosuid` as context, using flags visible in y-not's mount namespace
@@ -12,11 +14,15 @@ All notable changes to `y-not` are documented here.
 
 ## v1.1.1 — Fixes
 
+Reliability fixes for permission explanations and Debian package delivery.
+
 - Fixed the denial message for a blocked parent directory: it now says "traverse" (matching the tree's `enter` column and the JSON trace's `"checked": "enter"`) instead of claiming a missing read/write bit
 - Debian package: generate versioned runtime dependencies with `dpkg-shlibdeps`; ship a policy-valid `changelog.Debian.gz`; keep the rich upstream notes as `changelog.gz`; honour `SOURCE_DATE_EPOCH` for reproducible builds; single-source the maintainer field
 - Release workflow now triggers on every `vX.Y.Z` tag, not only major versions, so each published version ships a downloadable `.deb`
 
 ## v1.1.0 — JSON output
+
+JSON output.
 
 - `--json` flag (must come first): emits a machine-readable document instead of text, for scripts/CI
 - Stable `reason` machine code plus a human `explanation` string for every denial
@@ -27,6 +33,8 @@ All notable changes to `y-not` are documented here.
 - Reorganized `src/`/`include/` into `resolve/`, `permissions/`, `context/`, `render/` subdirectories, grouped by responsibility rather than kept flat
 
 ## v1.0.0 — Stable CLI, packaging
+
+A stable command-line interface and Debian package release.
 
 - `--version` and `--help`/`-h` flags
 - Man page (`man/y-not.1`), installed by `make install`
