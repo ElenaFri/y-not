@@ -42,3 +42,42 @@ jobs:
           files: build/coverage.info
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
+
+  package-install:
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie-slim
+    steps:
+      - name: Install build dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+              build-essential libacl1-dev libcap-dev libselinux1-dev dpkg-dev
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Build Debian package
+        run: make deb
+
+      - name: Remove build dependencies
+        run: |
+          apt-get purge -y build-essential libacl1-dev libcap-dev libselinux1-dev dpkg-dev
+          apt-get autoremove -y
+
+      - name: Install package and verify runtime
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ./build/y-not_*.deb
+          test "$(/usr/bin/y-not --version)" = "y-not $(dpkg-query -W -f='${Version}' y-not)"
+          /usr/bin/y-not nobody read /etc/passwd
+          set +e
+          /usr/bin/y-not nobody read /etc/shadow
+          status=$?
+          set -e
+          test "$status" -eq 1
+
+      - name: Remove package and verify uninstall
+        run: |
+          apt-get remove -y y-not
+          test ! -e /usr/bin/y-not
+          test ! -e /usr/share/man/man1/y-not.1.gz
