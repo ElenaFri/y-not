@@ -2,6 +2,14 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.3.0 — Permission decision transparency
+
+Make permission denials easier to understand and act on.
+
+- Show the permission source and raw/effective `rwx` details in access traces, including ACL mask effects
+- Identify one missing Unix or ACL group whose effective permissions would grant the requested operation; expose its GID as `missing_group_gid` in JSON
+- Refresh the README diagnosis examples and isolate coverage builds from the normal build artifacts
+
 ## v1.2.0 — Path and mount access accuracy
 
 More accurate Linux access checks across symlink paths, directory writes, and mount restrictions.

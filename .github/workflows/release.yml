@@ -30,6 +30,15 @@ jobs:
 
             - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+            - name: Verify tag matches project version
+              run: |
+                  tag_version="${GITHUB_REF_NAME#v}"
+                  project_version="$(sed -n 's/^VERSION := //p' Makefile)"
+                  if [ "$tag_version" != "$project_version" ]; then
+                      echo "Tag version $tag_version does not match Makefile VERSION $project_version" >&2
+                      exit 1
+                  fi
+
             - name: Build .deb package
               run: make deb
 
