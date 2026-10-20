@@ -1,6 +1,38 @@
 #include "../include/permissions/permissions.h"
 #include "testlib.h"
 
+#include <errno.h>
+
+static int fail_tag_call;
+static int fail_permset_call;
+static int tag_calls;
+static int permset_calls;
+
+int __real_acl_get_tag_type(acl_entry_t entry, acl_tag_t *tag);
+int __real_acl_get_permset(acl_entry_t entry, acl_permset_t *permset);
+
+int __wrap_acl_get_tag_type(acl_entry_t entry, acl_tag_t *tag)
+{
+    tag_calls++;
+    if (tag_calls == fail_tag_call)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    return __real_acl_get_tag_type(entry, tag);
+}
+
+int __wrap_acl_get_permset(acl_entry_t entry, acl_permset_t *permset)
+{
+    permset_calls++;
+    if (permset_calls == fail_permset_call)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+    return __real_acl_get_permset(entry, permset);
+}
+
 static User make_user(uid_t uid, gid_t primary, gid_t *groups, size_t n)
 {
     return (User){.uid = uid, .primary_gid = primary, .groups = groups, .group_count = n, .name = "test"};
@@ -168,6 +200,42 @@ int main(void)
         r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_WRITE, acl4);
         CHECK(!r.allowed && r.reason == REASON_OTHER_DENIED);
         acl_free(acl4);
+    }
+
+    /* libacl can fail while reading an ACL entry (for example, allocation
+       failure in qualifier lookup). The evaluator skips that entry and keeps
+       processing rather than using uninitialized tag/permission data. */
+    acl_t acl_read_failure = acl_from_text(
+        "user::rw-,group::---,group:2001:r--,mask::r--,other::---");
+    CHECK(acl_read_failure != NULL);
+    if (acl_read_failure)
+    {
+        tag_calls = 0;
+        fail_tag_call = 1;
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_read_failure);
+        fail_tag_call = 0;
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 2001);
+
+        permset_calls = 0;
+        fail_permset_call = 1;
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_read_failure);
+        fail_permset_call = 0;
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 2001);
+
+        /* Five entries are read in the main pass; fail the first tag lookup
+           in candidate collection to exercise its independent error path. */
+        tag_calls = 0;
+        fail_tag_call = 6;
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_read_failure);
+        fail_tag_call = 0;
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.candidate_group_count == 1 && r.candidate_group_gids[0] == 2001);
+        acl_free(acl_read_failure);
     }
 
     /* An unmatched ACL group that would grant access explains the denial

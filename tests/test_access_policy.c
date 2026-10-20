@@ -6,7 +6,21 @@
 static AccessPath fixture_path;
 static PathComponent fixture_components[3];
 static bool fail_path_resolution;
+static bool fail_next_strdup;
+static unsigned path_free_calls;
 static PermissionResult decisions[3][3];
+
+char *__real_strdup(const char *s);
+
+char *__wrap_strdup(const char *s)
+{
+    if (fail_next_strdup)
+    {
+        fail_next_strdup = false;
+        return NULL;
+    }
+    return __real_strdup(s);
+}
 
 AccessPath *path_resolve(const char *path)
 {
@@ -17,6 +31,7 @@ AccessPath *path_resolve(const char *path)
 void path_free(AccessPath *path)
 {
     (void)path; /* fixture storage is static */
+    path_free_calls++;
 }
 
 PermissionResult evaluate_permissions(const User *user, const struct stat *st,
@@ -53,6 +68,8 @@ static void setup_fixture(bool target_is_directory)
     fixture_path.components = fixture_components;
     fixture_path.count = 2;
     fail_path_resolution = false;
+    fail_next_strdup = false;
+    path_free_calls = 0;
 
     for (size_t i = 0; i < 2; i++)
         for (size_t op = 0; op < 3; op++)
@@ -136,6 +153,38 @@ static void check_mount_restrictions_override_dac_allow(void)
     access_result_free(&result);
 }
 
+static void check_strdup_failure_never_returns_allowed(void)
+{
+    User user = {.name = "fixture"};
+
+    /* A path inspection failure needs strdup() to preserve blocked_path. If
+       that allocation fails, check_access must not fall through to "allowed"
+       with a freed AccessPath. */
+    setup_fixture(false);
+    fixture_components[1].denial_reason = REASON_BROKEN_SYMLINK;
+    fail_next_strdup = true;
+    AccessResult result = check_access(&user, "/target", ACCESS_READ);
+    CHECK(!result.allowed);
+    CHECK(result.reason == REASON_NOT_FOUND);
+    CHECK(result.access_path == NULL && result.blocked_path == NULL);
+    CHECK(path_free_calls == 1);
+    access_result_free(&result);
+
+    /* The same allocation failure can happen after a DAC denial. */
+    setup_fixture(false);
+    decisions[1][ACCESS_READ] = (PermissionResult){
+        .allowed = false, .reason = REASON_OWNER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OWNER,
+    };
+    fail_next_strdup = true;
+    result = check_access(&user, "/target", ACCESS_READ);
+    CHECK(!result.allowed);
+    CHECK(result.reason == REASON_NOT_FOUND);
+    CHECK(result.access_path == NULL && result.blocked_path == NULL);
+    CHECK(path_free_calls == 1);
+    access_result_free(&result);
+}
+
 static void check_path_inspection_error_is_reported_before_dac(void)
 {
     setup_fixture(false);
@@ -154,5 +203,6 @@ int main(void)
     check_directory_write_needs_search_then_write();
     check_mount_restrictions_override_dac_allow();
     check_path_inspection_error_is_reported_before_dac();
+    check_strdup_failure_never_returns_allowed();
     return TEST_SUMMARY();
 }

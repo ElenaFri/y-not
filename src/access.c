@@ -21,7 +21,7 @@ AccessResult check_access(const User *user,
             if (!bp)
             {
                 path_free(ap);
-                break;
+                return (AccessResult){.allowed = false, .reason = REASON_NOT_FOUND};
             }
             return (AccessResult){.allowed = false,
                                   .blocked_path = bp,
@@ -78,7 +78,7 @@ AccessResult check_access(const User *user,
             if (!bp)
             {
                 path_free(ap);
-                break;
+                return (AccessResult){.allowed = false, .reason = REASON_NOT_FOUND};
             }
             return (AccessResult){.allowed = false,
                                   .blocked_path = bp,

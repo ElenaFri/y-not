@@ -104,7 +104,8 @@ $(BUILDDIR)/test_permissions: $(TESTDIR)/test_permissions.c \
     $(SRCDIR)/permissions/permissions.c $(SRCDIR)/permissions/acl_eval.c \
     $(SRCDIR)/permissions/mode_bits.c $(SRCDIR)/permissions/capabilities.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS_DEBUG) -Wl,--wrap=acl_get_tag_type \
+	    -Wl,--wrap=acl_get_permset -o $@ $^ $(LDLIBS)
 
 # test_capabilities exercises the capability.conf parser directly
 $(BUILDDIR)/test_capabilities: $(TESTDIR)/test_capabilities.c \
@@ -126,7 +127,7 @@ $(BUILDDIR)/test_apparmor_info: $(TESTDIR)/test_apparmor_info.c \
 $(BUILDDIR)/test_access_policy: $(TESTDIR)/test_access_policy.c \
     $(SRCDIR)/access.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
-	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+	$(CC) $(CFLAGS_DEBUG) -Wl,--wrap=strdup -o $@ $^ $(LDLIBS)
 
 # test_access links all modules it orchestrates
 $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
