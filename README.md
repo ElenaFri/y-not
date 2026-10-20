@@ -16,24 +16,46 @@ reveal why:
 
 ```text
 $ ls -l /tmp/demo/project/report.txt
--rw-r--r-- 1 elena_f elena_f 11 Oct 13 10:18 /tmp/demo/project/report.txt   # looks readable
+-rw-r--r-- 1 elena_f elena_f 11 Oct 20 06:29 /tmp/demo/project/report.txt   # looks readable
 
 $ y-not nobody read /tmp/demo/project/report.txt
 
 nobody cannot read /tmp/demo/project/report.txt
 
   blocked at  /tmp/demo/project
-  reason      no traverse permission: not the owner and not in the file's group
+  reason      no traverse permission: not the owner and not in the directory's group
 
   /                           drwxr-xr-x  root:root   enter    ok
-  └── tmp                     drwxrwxrwx  root:root   enter    ok
-      └── demo                drwxr-xr-x  elena_f:elena_f   enter    ok
-          └── project         drwx------  elena_f:elena_f   enter    BLOCKED
+  └── tmp                     drwxrwxrwx  root:root   enter    ok  (mount: nosuid)
+      └── demo                drwxr-xr-x  elena_f:elena_f   enter    ok  (mount: nosuid)
+          └── project         drwx------  elena_f:elena_f   enter    BLOCKED  (mount: nosuid)
               └── report.txt
+
+AppArmor: enabled (profile count needs elevated privilege)
 ```
+
+Mount annotations and SELinux/AppArmor status depend on the host; the output
+above was captured on a system where `/tmp` is mounted `nosuid` and AppArmor
+is enabled.
 
 The file is world-readable, but `/tmp/demo/project` is not traversable by
 `nobody`. `y-not` points at the exact component that blocks access, and why.
+
+## Install
+
+The release package is currently built for **amd64**. Download the `.deb` from
+[GitHub Releases](https://github.com/ElenaFri/y-not/releases), then install it
+with APT so runtime dependencies are resolved automatically:
+
+```sh
+sudo apt install ./y-not_*.deb
+```
+
+The package declares runtime library version requirements generated from the
+binary, including `libc6 (>= 2.34)`; APT refuses installation when the system
+is too old. For a source install, see [Build & test](#build--test); `make install`
+installs under `/usr/local` and therefore needs `sudo`, or set `PREFIX` to a
+user-writable location such as `~/.local`.
 
 ## Usage
 
@@ -56,7 +78,7 @@ come first) emits a machine-readable JSON document instead of text — see
 make          # release build ./y-not
 make debug    # with ASan/UBSan
 make check    # run all unit tests (always built with ASan/UBSan)
-make install  # install to /usr/local/bin  (PREFIX= to override)
+sudo make install  # install to /usr/local/bin (PREFIX= to override)
 ```
 
 ## JSON output
@@ -77,11 +99,12 @@ make install  # install to /usr/local/bin  (PREFIX= to override)
 }
 ```
 
-`reason` is a stable machine code (see `reason_code()` in `src/json_output.c`
+`reason` is a stable machine code (see `reason_code()` in `src/render/json_output.c`
 for the full list); `explanation` is the same human sentence the text
-renderer would print. `trace` lists each path component up to and including
-the blocked one — nothing past that point is revealed, matching the text
-renderer. The exit code contract (0 allowed / 1 denied) is unchanged, and
+renderer would print. Each resolved trace component includes the mount flags
+visible to y-not (`known`, `read_only`, `noexec`, `nosuid`). `trace` lists each
+path component up to and including the blocked one — nothing past that point is
+revealed, matching the text renderer. The exit code contract (0 allowed / 1 denied) is unchanged, and
 `--json` always emits a valid document, even for an unknown user or a path
 that couldn't be resolved at all.
 
@@ -95,10 +118,10 @@ src/
 ├── access.c            orchestrate the modules below, return the first blocking point
 ├── resolve/            turn raw strings into structured data
 │   ├── user.c              resolve uid, primary gid and supplementary groups
-│   └── path.c              decompose path into components, stat(2)/lstat(2) each one
+│   └── path.c              inspect lexical prefixes with stat(2)/lstat(2)/statvfs(2)
 ├── permissions/        the access-decision engine
 │   ├── mode_bits.c         shared owner/group/other bit checks and group membership
-│   ├── permissions.c       dispatch: root/capability bypass, ACL, or plain Unix bits
+│   ├── permissions.c       DAC/ACL/capability checks and mount restrictions
 │   ├── acl_eval.c          full POSIX ACL evaluation algorithm
 │   └── capabilities.c      CAP_DAC_OVERRIDE / CAP_DAC_READ_SEARCH via capability.conf
 ├── context/            informational only - never changes the verdict
@@ -128,6 +151,9 @@ therefore assert on the result directly, without parsing terminal output.
 
 ## Known limitations
 
+- **Linux capabilities are approximated.** y-not reads grants from
+  `/etc/security/capability.conf` (pam_cap) and displays file capabilities, but
+  does not simulate the effective capabilities of an actual target process.
 - **SELinux/AppArmor are informational only.** Neither changes the allow/deny
   verdict. AppArmor confines programs, not users, so a per-file check does not
   fit the `USER OPERATION PATH` model.

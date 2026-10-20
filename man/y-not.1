@@ -1,4 +1,4 @@
-.TH Y-NOT 1 "2026-10-13" "y-not 1.1.1" "User Commands"
+.TH Y-NOT 1 "2026-10-20" "y-not 1.2.0" "User Commands"
 .SH NAME
 y-not \- explain why a user can or cannot access a file or directory
 .SH SYNOPSIS
@@ -26,8 +26,10 @@ and
 .BR getfacl (1),
 .B y-not
 evaluates owner/group/other permissions, supplementary groups, POSIX ACLs,
-Linux capabilities, symlinks and special files, and reports the result in a
-single, human-readable explanation.
+Linux mount restrictions, symlinks and special files, and reports the result in
+a single, human-readable explanation. Capability grants from pam_cap's
+capability.conf are used as an approximation; this is not a simulation of an
+actual target process's effective capabilities.
 .SH OPERATION
 .TP
 .B read\fR, \fBr
@@ -61,9 +63,10 @@ Same, using the short form:
 .B y-not alice r /srv/project/report.pdf
 .SH LIMITATIONS
 .B y-not
-explains discretionary access control (Unix permissions, ACLs,
-capabilities) precisely. SELinux and AppArmor status are reported for
-context, but neither changes the allow/deny verdict: SELinux policy
+models Unix permissions and POSIX ACLs and applies read-only/noexec mount
+restrictions. pam_cap grants are only an approximation of process capabilities;
+SELinux and AppArmor status are reported for context, but neither changes the
+allow/deny verdict: SELinux policy
 evaluation and AppArmor's per-program confinement do not fit into a
 single user/operation/path query. Read-only and noexec mount options are
 included in the verdict; nosuid is informational. Mount options are read from

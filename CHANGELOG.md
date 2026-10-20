@@ -2,10 +2,18 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.2.0 — Path and mount access accuracy
+
+- Preserve lexical `.` and `..` path components so the kernel resolves them after following preceding symlinks; reject empty pathnames and honor trailing-slash directory requirements
+- Require both write and traversal permission to create entries in a directory; report traversal denials distinctly and correctly model root's directory-search bypass
+- Include read-only and `noexec` mount restrictions in access decisions; report `nosuid` as context, using flags visible in y-not's mount namespace
+- Add a CI integration job that builds the Debian package, removes build dependencies, installs and exercises the package, then verifies removal
+- Document the scope and limitations of directory operations, mount namespaces, and mount flags
+
 ## v1.1.1 — Fixes
 
 - Fixed the denial message for a blocked parent directory: it now says "traverse" (matching the tree's `enter` column and the JSON trace's `"checked": "enter"`) instead of claiming a missing read/write bit
-- Debian package: ship a policy-valid `changelog.Debian.gz` (lintian is now clean); keep the rich upstream notes as `changelog.gz`; honour `SOURCE_DATE_EPOCH` for reproducible builds; single-source the maintainer field
+- Debian package: generate versioned runtime dependencies with `dpkg-shlibdeps`; ship a policy-valid `changelog.Debian.gz`; keep the rich upstream notes as `changelog.gz`; honour `SOURCE_DATE_EPOCH` for reproducible builds; single-source the maintainer field
 - Release workflow now triggers on every `vX.Y.Z` tag, not only major versions, so each published version ships a downloadable `.deb`
 
 ## v1.1.0 — JSON output
