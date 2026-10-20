@@ -30,6 +30,8 @@ static const char *reason_code(AccessReason r)
     case REASON_NOT_FOUND:       return "not_found";
     case REASON_BROKEN_SYMLINK:  return "broken_symlink";
     case REASON_SYMLINK_LOOP:    return "symlink_loop";
+    case REASON_MOUNT_READ_ONLY: return "mount_read_only";
+    case REASON_MOUNT_NOEXEC:    return "mount_noexec";
     default:                     return "unknown";
     }
 }
@@ -160,6 +162,12 @@ static void build_explanation(const AccessResult *result, AccessOperation op,
     case REASON_SYMLINK_LOOP:
         snprintf(buf, size, "too many levels of symbolic links (possible loop)");
         break;
+    case REASON_MOUNT_READ_ONLY:
+        snprintf(buf, size, "filesystem is mounted read-only");
+        break;
+    case REASON_MOUNT_NOEXEC:
+        snprintf(buf, size, "filesystem is mounted with noexec");
+        break;
     case REASON_NONE:
         snprintf(buf, size, "access allowed");
         break;
@@ -211,7 +219,12 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     json_print_string_or_null(comp->file_caps);
     printf(",\n      \"selinux_context\": ");
     json_print_string_or_null(comp->selinux_context);
-    printf(",\n      \"has_acl\": %s,\n", comp->acl ? "true" : "false");
+    printf(",\n      \"mount_flags\": {\"known\": %s, \"read_only\": %s, \"noexec\": %s, \"nosuid\": %s},\n",
+           comp->mount_flags_known ? "true" : "false",
+           comp->mount_read_only ? "true" : "false",
+           comp->mount_noexec ? "true" : "false",
+           comp->mount_nosuid ? "true" : "false");
+    printf("      \"has_acl\": %s,\n", comp->acl ? "true" : "false");
     printf("      \"checked\": \"%s\",\n", checked_full_op ? op_name(op) : "enter");
     printf("      \"allowed\": %s\n", is_blocked ? "false" : "true");
     printf("    }");

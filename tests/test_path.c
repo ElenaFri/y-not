@@ -31,6 +31,7 @@ int main(void)
         CHECK(strcmp(root->components[0].path, "/") == 0);
         CHECK(root->components[0].denial_reason == REASON_NONE);
         CHECK(S_ISDIR(root->components[0].st.st_mode));
+        CHECK(root->components[0].mount_flags_known);
         path_free(root);
     }
 

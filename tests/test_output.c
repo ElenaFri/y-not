@@ -89,6 +89,8 @@ static const AccessReason g_reasons[] = {
     REASON_NOT_FOUND,
     REASON_BROKEN_SYMLINK,
     REASON_SYMLINK_LOOP,
+    REASON_MOUNT_READ_ONLY,
+    REASON_MOUNT_NOEXEC,
 };
 
 /* Every AccessReason must produce a distinct, crash-free message, and the

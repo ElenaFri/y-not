@@ -1,3 +1,4 @@
+#define _GNU_SOURCE
 #include "resolve/path.h"
 
 #include <acl/libacl.h>
@@ -6,6 +7,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
+#include <sys/statvfs.h>
 #include <unistd.h>
 #include "context/selinux_info.h"
 
@@ -77,6 +79,15 @@ static void inspect_component(PathComponent *c)
                                    ? REASON_NOT_FOUND
                                    : REASON_NOT_TRAVERSABLE;
         return;
+    }
+
+    struct statvfs mount_info;
+    if (statvfs(c->path, &mount_info) == 0)
+    {
+        c->mount_flags_known = true;
+        c->mount_read_only = (mount_info.f_flag & ST_RDONLY) != 0;
+        c->mount_noexec = (mount_info.f_flag & ST_NOEXEC) != 0;
+        c->mount_nosuid = (mount_info.f_flag & ST_NOSUID) != 0;
     }
 
     if (acl_extended_file(c->path) == 1)

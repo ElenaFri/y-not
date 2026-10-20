@@ -46,6 +46,15 @@ int main(void)
     CHECK(evaluate_permissions(&root, &dir_no_x, ACCESS_EXECUTE, NULL).allowed);
     CHECK(!evaluate_permissions(&alice, &dir_no_x, ACCESS_EXECUTE, NULL).allowed);
 
+    struct stat st_directory = {0};
+    st_directory.st_mode = S_IFDIR | 0777;
+    CHECK(mount_restriction_reason(false, true, true, &st_644, ACCESS_WRITE) == REASON_NONE);
+    CHECK(mount_restriction_reason(true, true, false, &st_644, ACCESS_WRITE) == REASON_MOUNT_READ_ONLY);
+    CHECK(mount_restriction_reason(true, true, false, &st_directory, ACCESS_WRITE) == REASON_MOUNT_READ_ONLY);
+    CHECK(mount_restriction_reason(true, false, true, &st_644, ACCESS_EXECUTE) == REASON_MOUNT_NOEXEC);
+    CHECK(mount_restriction_reason(true, false, true, &st_directory, ACCESS_EXECUTE) == REASON_NONE);
+    CHECK(mount_restriction_reason(true, true, true, &st_644, ACCESS_READ) == REASON_NONE);
+
     /* alice is owner - 0644: r+w ok, x denied */
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_READ, NULL).allowed);
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_WRITE, NULL).allowed);

@@ -58,6 +58,15 @@ AccessResult check_access(const User *user,
         else
             check = pr[operation];
 
+        if (check.allowed && is_last)
+        {
+            AccessReason mount_reason = mount_restriction_reason(
+                comp->mount_flags_known, comp->mount_read_only,
+                comp->mount_noexec, &comp->st, operation);
+            if (mount_reason != REASON_NONE)
+                check = (PermissionResult){.allowed = false, .reason = mount_reason};
+        }
+
         if (!check.allowed)
         {
             comp->denial_reason = check.reason;

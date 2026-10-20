@@ -24,6 +24,8 @@ typedef enum
     REASON_NOT_FOUND,
     REASON_BROKEN_SYMLINK, /* symlink whose target does not exist */
     REASON_SYMLINK_LOOP,   /* too many levels of symbolic links */
+    REASON_MOUNT_READ_ONLY,
+    REASON_MOUNT_NOEXEC,
 } AccessReason;
 
 typedef struct
@@ -36,3 +38,8 @@ PermissionResult evaluate_permissions(const User *user,
                                       const struct stat *st,
                                       AccessOperation op,
                                       acl_t acl);
+
+/* Apply mount-level restrictions after DAC permission checks. */
+AccessReason mount_restriction_reason(bool flags_known, bool read_only,
+                                      bool noexec, const struct stat *st,
+                                      AccessOperation op);

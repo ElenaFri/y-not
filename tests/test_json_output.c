@@ -128,6 +128,7 @@ static void check_allowed_case(void)
         CHECK(strstr(json, "\"reason\": \"none\"") != NULL);
         CHECK(strstr(json, "\"blocked_at\": null") != NULL);
         CHECK(strstr(json, "\"checked\": \"read\"") != NULL);
+        CHECK(strstr(json, "\"mount_flags\": {\"known\": false") != NULL);
         free(json);
     }
 
@@ -276,6 +277,8 @@ static const struct
     {REASON_NOT_FOUND, "not_found", true},
     {REASON_BROKEN_SYMLINK, "broken_symlink", true},
     {REASON_SYMLINK_LOOP, "symlink_loop", true},
+    {REASON_MOUNT_READ_ONLY, "mount_read_only", false},
+    {REASON_MOUNT_NOEXEC, "mount_noexec", false},
 };
 
 static void check_every_reason_message(void)

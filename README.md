@@ -122,6 +122,7 @@ therefore assert on the result directly, without parsing terminal output.
 - Explain Unix owner/group/mode permissions
 - Handle supplementary groups
 - Support POSIX ACLs
+- Account for read-only and `noexec` mount restrictions; report `nosuid` context
 - Provide clear, human-readable output
 - Stay small, fast and dependency-light
 
@@ -130,6 +131,14 @@ therefore assert on the result directly, without parsing terminal output.
 - **SELinux/AppArmor are informational only.** Neither changes the allow/deny
   verdict. AppArmor confines programs, not users, so a per-file check does not
   fit the `USER OPERATION PATH` model.
+- **Mount options are read in y-not's mount namespace.** `ro` and `noexec`
+  affect the verdict; `nosuid` is reported but does not change the file-access
+  verdict. A container or service running in another mount namespace may see
+  different options.
+- **Directory writes are creation checks.** y-not checks write plus traversal
+  permission for creating an entry. It cannot determine whether a particular
+  file can be removed or renamed without that entry's name and ownership; sticky
+  directories such as `/tmp` add that condition.
 - **ACL mask vs. mode bits.** When a file has an extended ACL, the group bits
   reported by `stat()` mirror the ACL mask, not the owning group's real
   permissions. The `GROUP_MISSING` fallback reason uses those bits as a

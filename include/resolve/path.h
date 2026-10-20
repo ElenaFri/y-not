@@ -15,6 +15,10 @@ typedef struct
     char *symlink_target;  /* NULL unless is_symlink; owned */
     char *file_caps;       /* NULL unless the file has security.capability set; owned */
     char *selinux_context; /* NULL unless SELinux is enabled and the file is labeled; owned */
+    bool mount_flags_known;
+    bool mount_read_only;
+    bool mount_noexec;
+    bool mount_nosuid;
     bool can_read;
     bool can_write;
     bool can_execute;

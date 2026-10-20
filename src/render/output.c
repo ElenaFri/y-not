@@ -158,6 +158,12 @@ static void print_reason(const AccessResult *result, AccessOperation op)
     case REASON_SYMLINK_LOOP:
         printf("  reason      too many levels of symbolic links (possible loop)\n");
         break;
+    case REASON_MOUNT_READ_ONLY:
+        printf("  reason      filesystem is mounted read-only\n");
+        break;
+    case REASON_MOUNT_NOEXEC:
+        printf("  reason      filesystem is mounted with noexec\n");
+        break;
     default:
         printf("  reason      unknown\n");
     }
@@ -248,6 +254,15 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             printf("  (caps: %s)", comp->file_caps);
         if (comp->selinux_context)
             printf("  (selinux: %s)", comp->selinux_context);
+        if (comp->mount_flags_known &&
+            (comp->mount_read_only || comp->mount_noexec || comp->mount_nosuid))
+        {
+            fputs("  (mount:", stdout);
+            if (comp->mount_read_only) fputs(" ro", stdout);
+            if (comp->mount_noexec) fputs(" noexec", stdout);
+            if (comp->mount_nosuid) fputs(" nosuid", stdout);
+            putchar(')');
+        }
         putchar('\n');
     }
 }

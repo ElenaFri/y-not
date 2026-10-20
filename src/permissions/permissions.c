@@ -63,3 +63,16 @@ PermissionResult evaluate_permissions(const User *user,
                                                     : REASON_OTHER_DENIED;
     return (PermissionResult){.allowed = false, .reason = reason};
 }
+
+AccessReason mount_restriction_reason(bool flags_known, bool read_only,
+                                      bool noexec, const struct stat *st,
+                                      AccessOperation op)
+{
+    if (!flags_known || !st)
+        return REASON_NONE;
+    if (op == ACCESS_WRITE && read_only)
+        return REASON_MOUNT_READ_ONLY;
+    if (op == ACCESS_EXECUTE && S_ISREG(st->st_mode) && noexec)
+        return REASON_MOUNT_NOEXEC;
+    return REASON_NONE;
+}
