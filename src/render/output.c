@@ -1,4 +1,5 @@
 #include "render/output.h"
+#include "render/explanation.h"
 
 #include <grp.h>
 #include <limits.h>
@@ -81,94 +82,6 @@ static void display_name(const PathComponent *comp, bool is_root, char *buf, siz
         snprintf(buf, size, "%s", name);
 }
 
-static const char *op_name(AccessOperation op)
-{
-    switch (op)
-    {
-    case ACCESS_READ:
-        return "read";
-    case ACCESS_WRITE:
-        return "write";
-    case ACCESS_EXECUTE:
-        return "execute";
-    default:
-        return "access";
-    }
-}
-
-static void print_reason(const AccessResult *result, AccessOperation op)
-{
-    const PathComponent *bc = NULL;
-    bool blocked_is_last = true;
-    if (result->access_path && result->blocked_path)
-    {
-        for (size_t i = 0; i < result->access_path->count; i++)
-        {
-            if (strcmp(result->access_path->components[i].path,
-                       result->blocked_path) == 0)
-            {
-                bc = &result->access_path->components[i];
-                blocked_is_last = (i == result->access_path->count - 1);
-                break;
-            }
-        }
-    }
-
-    char gbuf[32];
-    const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
-    const char *object = bc && S_ISDIR(bc->st.st_mode) ? "directory" : "file";
-    const char *group_object = bc && S_ISDIR(bc->st.st_mode)
-                                   ? "directory's group"
-                                   : "file's group";
-    /* Intermediate path components are checked for traversal, not the
-       requested operation: the verb must say so, matching the tree's
-       "enter" column instead of claiming e.g. a missing read bit. */
-    const char *o = (blocked_is_last && !result->blocked_on_traversal)
-                        ? op_name(op)
-                        : "traverse";
-
-    switch (result->reason)
-    {
-    case REASON_GROUP_MISSING:
-        printf("  reason      not in group \"%s\" (which would allow %s)\n",
-               grp ? grp : "?", o);
-        break;
-    case REASON_GROUP_DENIED:
-        printf("  reason      in group \"%s\" but the group has no %s permission\n",
-               grp ? grp : "?", o);
-        break;
-    case REASON_OWNER_DENIED:
-        printf("  reason      you own this %s but lack %s permission\n", object, o);
-        break;
-    case REASON_ACL_DENIED:
-        printf("  reason      ACL entry found for you but it does not grant %s permission\n", o);
-        break;
-    case REASON_OTHER_DENIED:
-        printf("  reason      no %s permission: not the owner and not in the %s\n", o, group_object);
-        break;
-    case REASON_NOT_TRAVERSABLE:
-        printf("  reason      cannot enter this directory\n");
-        break;
-    case REASON_NOT_FOUND:
-        printf("  reason      no such file or directory\n");
-        break;
-    case REASON_BROKEN_SYMLINK:
-        printf("  reason      this is a symlink pointing to a target that does not exist\n");
-        break;
-    case REASON_SYMLINK_LOOP:
-        printf("  reason      too many levels of symbolic links (possible loop)\n");
-        break;
-    case REASON_MOUNT_READ_ONLY:
-        printf("  reason      filesystem is mounted read-only\n");
-        break;
-    case REASON_MOUNT_NOEXEC:
-        printf("  reason      filesystem is mounted with noexec\n");
-        break;
-    default:
-        printf("  reason      unknown\n");
-    }
-}
-
 static void render_tree(const AccessResult *result, AccessOperation op)
 {
     const AccessPath *ap = result->access_path;
@@ -245,7 +158,7 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         const char *grp = gid_to_name(comp->st.st_gid, gbuf, sizeof(gbuf));
 
         const char *checked = (is_last && !result->blocked_on_traversal)
-                                  ? op_name(op)
+                                  ? access_operation_name(op)
                                   : "enter";
         printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
@@ -296,14 +209,16 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     putchar('\n');
     if (result->allowed)
     {
-        printf("%s can %s %s\n", user->name, op_name(op), target);
+        printf("%s can %s %s\n", user->name, access_operation_name(op), target);
     }
     else
     {
-        printf("%s cannot %s %s\n", user->name, op_name(op), target);
+        printf("%s cannot %s %s\n", user->name, access_operation_name(op), target);
         if (result->blocked_path)
             printf("\n  blocked at  %s\n", result->blocked_path);
-        print_reason(result, op);
+        char explanation[512];
+        format_access_explanation(result, op, explanation, sizeof(explanation));
+        printf("  reason      %s\n", explanation);
     }
     putchar('\n');
     render_tree(result, op);

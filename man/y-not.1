@@ -30,6 +30,11 @@ Linux mount restrictions, symlinks and special files, and reports the result in
 a single, human-readable explanation. Capability grants from pam_cap's
 capability.conf are used as an approximation; this is not a simulation of an
 actual target process's effective capabilities.
+.PP
+When missing group membership explains a denial, y-not names one group whose
+mode bits or effective ACL permissions would grant the requested operation.
+For ACLs, the effective permissions after the ACL mask are considered. This
+identifies a relevant group, not every possible group membership.
 .SH OPERATION
 .TP
 .B read\fR, \fBr

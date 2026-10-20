@@ -178,7 +178,7 @@ static void check_every_reason_message(void)
         AccessResult result = {.allowed = false, .reason = g_reasons[i], .blocked_path = comps[1].path, .access_path = &ap};
         User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
 
-        /* alternate operations so op_name()'s write branch is exercised too */
+        /* Alternate operations to exercise both display names. */
         render_silently(&result, &user, (i % 2) ? ACCESS_WRITE : ACCESS_READ);
         CHECK(true);
 
@@ -320,37 +320,6 @@ static void check_permission_bit_patterns_are_rendered(void)
     }
 }
 
-static void check_named_group_reasons_are_rendered(void)
-{
-    const AccessReason reasons[] = {REASON_GROUP_MISSING, REASON_GROUP_DENIED};
-    const char *const expected[] = {"not in group \"y_not_test_group\"",
-                                    "in group \"y_not_test_group\" but the group has no read permission"};
-
-    for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); i++)
-    {
-        PathComponent comps[2] = {0};
-        comps[0].path = strdup("/");
-        comps[0].st.st_mode = S_IFDIR | 0755;
-        comps[1].path = strdup("/target");
-        comps[1].st.st_mode = S_IFREG | 0640;
-        comps[1].st.st_gid = mock_group.gr_gid;
-        comps[1].denial_reason = reasons[i];
-
-        AccessPath ap = {.components = comps, .count = 2};
-        AccessResult result = {.allowed = false, .reason = reasons[i],
-                               .blocked_path = comps[1].path, .access_path = &ap};
-        User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
-        char *text = render_and_capture(&result, &user, ACCESS_READ);
-        CHECK(text != NULL);
-        if (text)
-        {
-            CHECK(strstr(text, expected[i]) != NULL);
-            free(text);
-        }
-        free(comps[0].path);
-        free(comps[1].path);
-    }
-}
 
 static void check_intermediate_traversal_explanation(void)
 {
@@ -552,7 +521,7 @@ int main(void)
     check_file_types_and_symlink_arrow();
     check_acl_decision_is_explained();
     check_permission_bit_patterns_are_rendered();
-    check_named_group_reasons_are_rendered();
+
     check_intermediate_traversal_explanation();
     check_mount_flags_are_rendered();
     check_file_caps_and_selinux_annotations();

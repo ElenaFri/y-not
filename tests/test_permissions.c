@@ -79,6 +79,7 @@ int main(void)
     /* bob not in group - other cannot read 0640, but group could */
     r = evaluate_permissions(&bob, &st_640, ACCESS_READ, NULL);
     CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+    CHECK(r.missing_group_known && r.missing_group_gid == 1001);
 
     /* bob not in group - 0600: neither other nor group help */
     r = evaluate_permissions(&bob, &st_600, ACCESS_READ, NULL);
@@ -180,7 +181,21 @@ int main(void)
                                  acl_group_missing);
         CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
         CHECK(r.source == PERMISSION_SOURCE_ACL_OTHER);
+        CHECK(r.missing_group_known && r.missing_group_gid == 2001);
         acl_free(acl_group_missing);
+    }
+
+    /* The owning group ACL entry is also a possible missing membership. */
+    acl_t acl_group_obj_missing = acl_from_text(
+        "user::rw-,group::r--,mask::r--,other::---");
+    CHECK(acl_group_obj_missing != NULL);
+    if (acl_group_obj_missing)
+    {
+        r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
+                                 acl_group_obj_missing);
+        CHECK(!r.allowed && r.reason == REASON_GROUP_MISSING);
+        CHECK(r.missing_group_known && r.missing_group_gid == 1002);
+        acl_free(acl_group_obj_missing);
     }
 
     /* A group entry's raw read bit does not imply a possible grant when the
@@ -193,6 +208,7 @@ int main(void)
         r = evaluate_permissions(&acl_stranger, &st_acl, ACCESS_READ,
                                  acl_group_masked);
         CHECK(!r.allowed && r.reason == REASON_OTHER_DENIED);
+        CHECK(!r.missing_group_known);
         acl_free(acl_group_masked);
     }
 

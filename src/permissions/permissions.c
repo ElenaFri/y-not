@@ -78,8 +78,15 @@ PermissionResult evaluate_permissions(const User *user, const struct stat *st,
                                  other, 7, false);
     unsigned group = mode_permission_bits(mode, 3);
     AccessReason reason = (group & bit) ? REASON_GROUP_MISSING : REASON_OTHER_DENIED;
-    return permission_result(false, reason, PERMISSION_SOURCE_UNIX_OTHER,
-                             other, 7, false);
+    PermissionResult denied = permission_result(false, reason,
+                                               PERMISSION_SOURCE_UNIX_OTHER,
+                                               other, 7, false);
+    if (reason == REASON_GROUP_MISSING)
+    {
+        denied.missing_group_gid = st->st_gid;
+        denied.missing_group_known = true;
+    }
+    return denied;
 }
 
 AccessReason mount_restriction_reason(bool flags_known, bool read_only,

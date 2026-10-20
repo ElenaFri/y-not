@@ -138,14 +138,19 @@ $(BUILDDIR)/test_access: $(TESTDIR)/test_access.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+$(BUILDDIR)/test_explanation: $(TESTDIR)/test_explanation.c \
+    $(SRCDIR)/render/explanation.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 # Status providers are mocked in test_output for deterministic active/inactive cases.
 $(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
-    $(SRCDIR)/render/output.c | $(BUILDDIR)
+    $(SRCDIR)/render/output.c $(SRCDIR)/render/explanation.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 $(BUILDDIR)/test_json_output: $(TESTDIR)/test_json_output.c \
-    $(SRCDIR)/render/json_output.c | $(BUILDDIR)
+    $(SRCDIR)/render/json_output.c $(SRCDIR)/render/explanation.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
@@ -170,16 +175,19 @@ $(BUILDDIR)/test_user_lookup_mock: $(TESTDIR)/test_user_lookup_mock.c \
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 
-# Code coverage: rebuild the application and every test with gcov instrumentation,
-# run the full suite (including the CLI against the instrumented binary), then
-# summarize with lcov. Test failures must fail this target, not yield a report.
+# Code coverage: build in an isolated directory so gcov objects cannot be
+# accidentally reused by the normal build or leave the root binary instrumented.
+# Test failures must fail this target rather than yield a misleading report.
 CFLAGS_COVERAGE := $(CFLAGS_BASE) -O0 -g --coverage
 
-.PHONY: coverage
+.PHONY: coverage coverage-run
 coverage:
-	$(MAKE) clean
-	$(MAKE) CFLAGS='$(CFLAGS_COVERAGE)' CFLAGS_DEBUG='$(CFLAGS_COVERAGE)' \
-	    LDFLAGS=--coverage LDLIBS='$(LDLIBS) --coverage' $(TARGET) $(TESTBINS)
+	$(RM) -r $(BUILDDIR)/coverage
+	$(MAKE) BUILDDIR=$(BUILDDIR)/coverage TARGET=$(BUILDDIR)/coverage/y-not \
+	    CFLAGS='$(CFLAGS_COVERAGE)' CFLAGS_DEBUG='$(CFLAGS_COVERAGE)' \
+	    LDFLAGS=--coverage LDLIBS='$(LDLIBS) --coverage' coverage-run
+
+coverage-run: $(TARGET) $(TESTBINS)
 	@fail=0; \
 	for t in $(TESTBINS); do \
 	    if ! ./$$t >/dev/null 2>&1; then echo "FAILED: $$t"; fail=1; fi; \
@@ -187,7 +195,7 @@ coverage:
 	if ! Y_NOT_BIN=./$(TARGET) ./$(TESTDIR)/test_cli.sh >/dev/null 2>&1; then \
 	    echo "FAILED: $(TESTDIR)/test_cli.sh"; fail=1; \
 	fi; \
-	exit $$fail
+	[ $$fail -eq 0 ]
 	lcov --capture --directory $(BUILDDIR) --output-file $(BUILDDIR)/coverage.info \
 	    --ignore-errors inconsistent --rc branch_coverage=1 >/dev/null
 	lcov --remove $(BUILDDIR)/coverage.info '$(TESTDIR)/*' '/usr/*' --output-file $(BUILDDIR)/coverage.info \

@@ -148,6 +148,7 @@ static void check_allowed_case(void)
         CHECK(strstr(json, "\"decision\": {\"source\": \"acl_user\"") != NULL);
         CHECK(strstr(json, "\"entry_permissions\": \"rw-\"") != NULL);
         CHECK(strstr(json, "\"effective_permissions\": \"r--\"") != NULL);
+        CHECK(strstr(json, "\"missing_group_gid\": null") != NULL);
         free(json);
     }
 
@@ -282,30 +283,28 @@ static void check_file_type_and_acl_metadata(void)
     free_components(comps, 2);
 }
 
-static void check_named_group_explanations(void)
+static void check_missing_group_gid_in_json(void)
 {
-    const AccessReason reasons[] = {REASON_GROUP_MISSING, REASON_GROUP_DENIED};
-    const char *const expected[] = {
-        "not in group \\\"y_not_test_group\\\" (which would allow read)",
-        "in group \\\"y_not_test_group\\\" but the group has no read permission"};
-
-    for (size_t i = 0; i < sizeof(reasons) / sizeof(reasons[0]); i++)
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0640);
+    comps[1].st.st_gid = 5678;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_GROUP_MISSING,
+        .source = PERMISSION_SOURCE_ACL_OTHER,
+        .missing_group_gid = mock_group.gr_gid,
+        .missing_group_known = true};
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_GROUP_MISSING,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
     {
-        PathComponent comps[2] = {0};
-        make_root_and_target(comps, "/target", S_IFREG | 0640);
-        comps[1].st.st_gid = mock_group.gr_gid;
-        AccessPath ap = {.components = comps, .count = 2};
-        AccessResult result = {.allowed = false, .reason = reasons[i],
-                               .blocked_path = comps[1].path, .access_path = &ap};
-        char *json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
-        CHECK(json != NULL);
-        if (json)
-        {
-            CHECK(strstr(json, expected[i]) != NULL);
-            free(json);
-        }
-        free_components(comps, 2);
+        CHECK(strstr(json, "\"reason\": \"group_missing\"") != NULL);
+        CHECK(strstr(json, "\"missing_group_gid\": 1234") != NULL);
+        free(json);
     }
+    free_components(comps, 2);
 }
 
 static void check_intermediate_unresolved_component(void)
@@ -584,7 +583,7 @@ int main(void)
     check_allowed_case();
     check_all_permission_combinations_and_mount_flags();
     check_file_type_and_acl_metadata();
-    check_named_group_explanations();
+    check_missing_group_gid_in_json();
     check_intermediate_unresolved_component();
     check_denied_case_and_truncation();
     check_defensive_unknown_values();

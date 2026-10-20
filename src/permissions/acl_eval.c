@@ -20,6 +20,53 @@ static unsigned mask_bits(AclMask mask)
     return (mask.r ? 4u : 0u) | (mask.w ? 2u : 0u) | (mask.x ? 1u : 0u);
 }
 
+static unsigned operation_bit(AccessOperation op)
+{
+    return op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u;
+}
+
+static bool find_missing_acl_group(const User *user, const struct stat *st,
+                                   AccessOperation op, acl_t acl, AclMask mask,
+                                   gid_t *group_gid)
+{
+    unsigned needed = operation_bit(op);
+    unsigned effective_mask = mask_bits(mask);
+    acl_entry_t e;
+
+    for (int rv = acl_get_entry(acl, ACL_FIRST_ENTRY, &e); rv == 1;
+         rv = acl_get_entry(acl, ACL_NEXT_ENTRY, &e))
+    {
+        acl_tag_t tag;
+        acl_permset_t ps;
+        if (acl_get_tag_type(e, &tag) != 0 || acl_get_permset(e, &ps) != 0)
+            continue;
+        if (!(permset_bits(ps) & effective_mask & needed))
+            continue;
+
+        if (tag == ACL_GROUP_OBJ && !user_in_group(user, st->st_gid))
+        {
+            *group_gid = st->st_gid;
+            return true;
+        }
+        if (tag == ACL_GROUP)
+        {
+            gid_t *q = acl_get_qualifier(e);
+            if (q)
+            {
+                gid_t candidate = *q;
+                bool missing = !user_in_group(user, candidate);
+                acl_free(q);
+                if (missing)
+                {
+                    *group_gid = candidate;
+                    return true;
+                }
+            }
+        }
+    }
+    return false;
+}
+
 static PermissionResult result(bool allowed, AccessReason reason,
                                PermissionSource source, unsigned entry,
                                AclMask mask, bool masked)
@@ -118,8 +165,12 @@ PermissionResult evaluate_acl_permissions(const User *user, const struct stat *s
 
     /* Report group_missing only when the matching ACL group entries would
        grant this operation after applying the ACL mask. */
-    AccessReason reason = (all_groups & mask_bits(mask) &
-                           (op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u))
+    AccessReason reason = (all_groups & mask_bits(mask) & operation_bit(op))
                               ? REASON_GROUP_MISSING : REASON_OTHER_DENIED;
-    return result(false, reason, PERMISSION_SOURCE_ACL_OTHER, other, mask, false);
+    PermissionResult denied = result(false, reason, PERMISSION_SOURCE_ACL_OTHER,
+                                     other, mask, false);
+    if (reason == REASON_GROUP_MISSING)
+        denied.missing_group_known = find_missing_acl_group(
+            user, st, op, acl, mask, &denied.missing_group_gid);
+    return denied;
 }

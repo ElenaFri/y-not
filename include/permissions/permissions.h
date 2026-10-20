@@ -2,6 +2,7 @@
 
 #include <sys/acl.h>
 #include <sys/stat.h>
+#include <sys/types.h>
 #include <stdbool.h>
 #include "resolve/user.h"
 
@@ -53,6 +54,8 @@ typedef struct
     unsigned effective_permissions; /* entry after ACL mask, when applicable */
     unsigned mask_permissions;
     bool mask_applied;
+    gid_t missing_group_gid; /* a non-member group that would grant the operation */
+    bool missing_group_known;
 } PermissionResult;
 
 PermissionResult evaluate_permissions(const User *user,

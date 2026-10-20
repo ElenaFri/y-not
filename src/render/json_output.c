@@ -1,20 +1,10 @@
 #include "render/json_output.h"
+#include "render/explanation.h"
 
 #include <grp.h>
 #include <pwd.h>
 #include <stdio.h>
 #include <string.h>
-
-static const char *op_name(AccessOperation op)
-{
-    switch (op)
-    {
-    case ACCESS_READ:    return "read";
-    case ACCESS_WRITE:   return "write";
-    case ACCESS_EXECUTE: return "execute";
-    default:             return "access";
-    }
-}
 
 static const char *reason_code(AccessReason r)
 {
@@ -100,82 +90,6 @@ static void json_print_string_or_null(const char *s)
     else   fputs("null", stdout);
 }
 
-static const PathComponent *find_blocked_component(const AccessResult *result)
-{
-    if (!result->access_path || !result->blocked_path)
-        return NULL;
-    for (size_t i = 0; i < result->access_path->count; i++)
-        if (strcmp(result->access_path->components[i].path, result->blocked_path) == 0)
-            return &result->access_path->components[i];
-    return NULL;
-}
-
-/* Mirrors output.c's print_reason() messages, but builds a string instead
-   of printing: each renderer owns its own copy of the wording it needs. */
-static void build_explanation(const AccessResult *result, AccessOperation op,
-                              char *buf, size_t size)
-{
-    const PathComponent *bc = find_blocked_component(result);
-    bool blocked_is_last = true;
-    if (result->access_path && result->blocked_path && result->access_path->count > 0)
-        blocked_is_last = strcmp(
-            result->access_path->components[result->access_path->count - 1].path,
-            result->blocked_path) == 0;
-    char gbuf[32];
-    const char *grp = bc ? gid_to_name(bc->st.st_gid, gbuf, sizeof(gbuf)) : NULL;
-    const char *object = bc && S_ISDIR(bc->st.st_mode) ? "directory" : "file";
-    const char *group_object = bc && S_ISDIR(bc->st.st_mode)
-                                   ? "directory's group"
-                                   : "file's group";
-    /* Intermediate components are checked for traversal, not the requested op,
-       so the prose must match the trace's per-component "checked": "enter". */
-    const char *o = (blocked_is_last && !result->blocked_on_traversal)
-                        ? op_name(op)
-                        : "traverse";
-
-    switch (result->reason)
-    {
-    case REASON_GROUP_MISSING:
-        snprintf(buf, size, "not in group \"%s\" (which would allow %s)", grp ? grp : "?", o);
-        break;
-    case REASON_GROUP_DENIED:
-        snprintf(buf, size, "in group \"%s\" but the group has no %s permission", grp ? grp : "?", o);
-        break;
-    case REASON_OWNER_DENIED:
-        snprintf(buf, size, "you own this %s but lack %s permission", object, o);
-        break;
-    case REASON_ACL_DENIED:
-        snprintf(buf, size, "ACL entry found for you but it does not grant %s permission", o);
-        break;
-    case REASON_OTHER_DENIED:
-        snprintf(buf, size, "no %s permission: not the owner and not in the %s", o, group_object);
-        break;
-    case REASON_NOT_TRAVERSABLE:
-        snprintf(buf, size, "cannot enter this directory");
-        break;
-    case REASON_NOT_FOUND:
-        snprintf(buf, size, "no such file or directory");
-        break;
-    case REASON_BROKEN_SYMLINK:
-        snprintf(buf, size, "this is a symlink pointing to a target that does not exist");
-        break;
-    case REASON_SYMLINK_LOOP:
-        snprintf(buf, size, "too many levels of symbolic links (possible loop)");
-        break;
-    case REASON_MOUNT_READ_ONLY:
-        snprintf(buf, size, "filesystem is mounted read-only");
-        break;
-    case REASON_MOUNT_NOEXEC:
-        snprintf(buf, size, "filesystem is mounted with noexec");
-        break;
-    case REASON_NONE:
-        snprintf(buf, size, "access allowed");
-        break;
-    default:
-        snprintf(buf, size, "unknown");
-    }
-}
-
 static const char *permission_source_name(PermissionSource source)
 {
     static const char *names[] = {"none", "unix_owner", "unix_group", "unix_other",
@@ -211,7 +125,7 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     if (stat_failed)
     {
         printf("      \"resolved\": false,\n");
-        printf("      \"checked\": \"%s\",\n", checked_full_op ? op_name(op) : "enter");
+        printf("      \"checked\": \"%s\",\n", checked_full_op ? access_operation_name(op) : "enter");
         printf("      \"allowed\": false\n");
         printf("    }");
         return;
@@ -241,7 +155,7 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
            comp->mount_noexec ? "true" : "false",
            comp->mount_nosuid ? "true" : "false");
     printf("      \"has_acl\": %s,\n", comp->acl ? "true" : "false");
-    printf("      \"checked\": \"%s\",\n", checked_full_op ? op_name(op) : "enter");
+    printf("      \"checked\": \"%s\",\n", checked_full_op ? access_operation_name(op) : "enter");
     printf("      \"allowed\": %s", is_blocked ? "false" : "true");
     if (comp->checked_permission_known)
     {
@@ -249,9 +163,14 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
         permission_text(comp->checked_permission.entry_permissions, entry);
         permission_text(comp->checked_permission.effective_permissions, effective);
         permission_text(comp->checked_permission.mask_permissions, mask);
-        printf(",\n      \"decision\": {\"source\": \"%s\", \"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": %s, \"mask_permissions\": \"%s\"}",
+        printf(",\n      \"decision\": {\"source\": \"%s\", \"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": %s, \"mask_permissions\": \"%s\", \"missing_group_gid\": ",
                permission_source_name(comp->checked_permission.source), entry, effective,
                comp->checked_permission.mask_applied ? "true" : "false", mask);
+        if (comp->checked_permission.missing_group_known)
+            printf("%u", (unsigned)comp->checked_permission.missing_group_gid);
+        else
+            fputs("null", stdout);
+        putchar('}');
     }
     putchar('\n');
     printf("    }");
@@ -263,7 +182,7 @@ static void print_header(const char *username, AccessOperation op, const char *p
     printf("  \"schema_version\": 1,\n");
     printf("  \"user\": ");
     json_print_string(username);
-    printf(",\n  \"operation\": \"%s\",\n", op_name(op));
+    printf(",\n  \"operation\": \"%s\",\n", access_operation_name(op));
     printf("  \"path\": ");
     json_print_string(path);
     printf(",\n");
@@ -276,8 +195,8 @@ void render_result_json(const AccessResult *result, const char *username,
     if (result->access_path && result->access_path->count > 0)
         target = result->access_path->components[result->access_path->count - 1].path;
 
-    char explanation[256];
-    build_explanation(result, op, explanation, sizeof(explanation));
+    char explanation[512];
+    format_access_explanation(result, op, explanation, sizeof(explanation));
 
     print_header(username, op, target);
     printf("  \"allowed\": %s,\n", result->allowed ? "true" : "false");
