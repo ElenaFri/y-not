@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.5.0 — Actionable fixes and honest verdicts
+
+Every denial now comes with the least-privilege fix, and y-not is honest about what it cannot decide.
+
+- Add a `to allow:` line suggesting the smallest change that would grant access for the blocking component — a `chmod` bit, a group membership, an ACL grant, or an ACL mask widening — or a note that a read-only/`noexec` mount, not a permission, is the real blocker; exposed as `remediation` in JSON
+- Warn when the DAC/ACL verdict is `allowed` but SELinux is enforcing or AppArmor has loaded profiles: the kernel may still deny a confined process, which y-not does not model. Reported as `may_override_verdict` and a human-readable `warning` in the JSON `mac` object
+- Report honestly that a path could not be inspected when a parent directory denies y-not itself the traversal needed to resolve it, instead of guessing a verdict; suggest re-running as root
+- Relabel the text denial summary with `cause:`, `proof:` and `to allow:`, and lift the permission proof into the summary block; the JSON field names (`reason`, `decision`, `remediation`) are unchanged
+
 ## v1.4.0 — List every group that would grant access
 
 Turn a missing-group denial into actionable advice.
