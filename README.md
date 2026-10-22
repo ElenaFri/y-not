@@ -23,9 +23,10 @@ $ y-not bob read /srv/private/report.txt
 
 bob cannot read /srv/private/report.txt
 
-  blocked at  /srv/private
-  reason      no traverse permission: not the owner and not in the directory's group
-  to allow    grant only this user via ACL: setfacl -m u:bob:x /srv/private
+  blocked at: /srv/private
+  cause:      no traverse permission: not the owner and not in the directory's group
+  proof:      Unix other bits: ---
+  to allow:   grant only this user via ACL: setfacl -m u:bob:x /srv/private
 
   /                           drwxr-xr-x  root:root   enter    ok
   └── srv                     drwxr-xr-x  root:root   enter    ok
@@ -33,9 +34,9 @@ bob cannot read /srv/private/report.txt
           └── report.txt
 ```
 
-The trace shows the first component that prevents the requested operation. A directory must grant search (`x`) permission for each path component leading to the target; checking only the target's `ls -l` line misses that. The `to allow` line names the smallest change that would make the modeled verdict `allowed` - here, granting `bob` search on the parent directory through an ACL rather than opening it to everyone.
+The trace shows the first component that prevents the requested operation. A directory must grant search (`x`) permission for each path component leading to the target; checking only the target's `ls -l` line misses that. The `cause:` line states the rule in plain words, `proof:` shows the exact permission bits it read (`Unix other bits: ---` here), and `to allow:` names the smallest change that would make the modeled verdict `allowed` - granting `bob` search on the parent directory through an ACL rather than opening it to everyone.
 
-For a permission denied by an ACL, the trace also shows the selected ACL source, its raw permissions, and (where applicable) the effective permissions after the ACL mask. This helps distinguish an entry that grants `rw-` from the effective `r--` result imposed by a mask.
+For a permission denied by an ACL, the `proof:` line shows the selected ACL source, its raw permissions, and (where applicable) the effective permissions after the ACL mask. This helps distinguish an entry that grants `rw-` from the effective `r--` result imposed by a mask.
 
 ## ACL mask: why an entry granting `rw-` can still deny writes
 
@@ -53,20 +54,23 @@ setfacl -m u:nobody:rw-,m:r-- "$demo/release/report.csv"
 y-not nobody write "$demo/latest-report.csv"
 ```
 
-The ACL entry says `rw-`, but its mask limits the effective rights to `r--`. The text output identifies the selected entry and the mask at the blocked file:
+The ACL entry says `rw-`, but its mask limits the effective rights to `r--`. The `proof:` line names the selected entry and the mask that overrides it:
 
 ```text
 nobody cannot write /tmp/demo/latest-report.csv
 
-  blocked at  /tmp/demo/latest-report.csv
-  reason      an ACL entry grants you write, but the ACL mask removes it
-  to allow    widen the ACL mask: setfacl -m m::rw /tmp/demo/latest-report.csv
+  blocked at: /tmp/demo/latest-report.csv
+  cause:      an ACL entry grants you write, but the ACL mask removes it
+  proof:      named ACL user entry: rw- & ACL mask r-- = r--
+  to allow:   widen the ACL mask: setfacl -m m::rw /tmp/demo/latest-report.csv
 
-          └── latest-report.csv -> /tmp/demo/release/report.csv  -rw-r-----  alice:alice   write    BLOCKED
-    decision    named ACL user entry: rw- & ACL mask r-- = r--
+  /                                                              drwxr-xr-x  root:root   enter    ok
+  └── tmp                                                        drwxrwxrwx  root:root   enter    ok
+      └── demo                                                   drwxr-xr-x  elena_f:elena_f   enter    ok
+          └── latest-report.csv -> /tmp/demo/release/report.csv  -rw-r-----  elena_f:elena_f   write    BLOCKED
 ```
 
-The temporary path and owner/group names vary on your system. This checks the ACL metadata for `nobody`; y-not does not run the write operation as that account. Because y-not can tell the entry from the mask, the `to allow` line points at the mask - the real blocker - instead of suggesting a redundant grant on an entry that already allows the write.
+The temporary path and owner/group names vary on your system. This checks the ACL metadata for `nobody`; y-not does not run the write operation as that account. Because y-not can tell the entry from the mask, the `to allow:` line points at the mask - the real blocker - instead of suggesting a redundant grant on an entry that already allows the write.
 
 ## Missing group membership: which group would help?
 
@@ -85,9 +89,15 @@ y-not nobody read "$demo/report.csv"
 ```text
 nobody cannot read /tmp/demo/report.csv
 
-  blocked at  /tmp/demo/report.csv
-  reason      not in any of the groups that would allow read: "mail", "news"
-  to allow    add nobody to a group that grants it: sudo usermod -aG mail nobody, then log in again
+  blocked at: /tmp/demo/report.csv
+  cause:      not in any of the groups that would allow read: "mail", "news"
+  proof:      ACL other entry: ---
+  to allow:   add nobody to a group that grants it: sudo usermod -aG mail nobody, then log in again
+
+  /                       drwxr-xr-x  root:root   enter    ok
+  └── tmp                 drwxrwxrwx  root:root   enter    ok
+      └── demo            drwxr-xr-x  elena_f:elena_f   enter    ok
+          └── report.csv  -rw-r-----  elena_f:elena_f   read     BLOCKED
 ```
 
 Only groups whose rights survive the ACL mask are listed, so the suggestion is actionable: joining any one of them would grant access. In JSON this appears as a `candidate_groups` array in the blocked component's `decision` object.
@@ -116,6 +126,8 @@ y-not --json alice write /srv/project
 ```
 
 On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. This generic check does not decide whether a particular directory entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
+
+The text output's `cause:`, `proof:` and `to allow:` lines correspond to the JSON `reason`, `decision` and `remediation` fields: the text uses plain-language labels for a human reader, while the JSON keys are a stable machine contract and do not change.
 
 The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. When missing group membership explains a denial, `missing_group_gid` identifies one group whose permissions would grant the requested operation, and `candidate_groups` lists every such group (GID and name); for ACLs, the effective rights after the ACL mask are used. A top-level `mac` object reports SELinux/AppArmor status, `evaluated` (always `false`, since y-not never factors MAC into the verdict), `may_override_verdict` (true when an allowed verdict could still be denied by an active module) and a human-readable `warning` (or `null`). `reason` is a machine-readable reason code, and `remediation` is a human-readable suggestion of the least-privilege change that would grant access (or `null` when no permission change applies, such as a missing path). Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
 

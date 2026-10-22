@@ -84,6 +84,31 @@ static void display_name(const PathComponent *comp, bool is_root, char *buf, siz
         snprintf(buf, size, "%s", name);
 }
 
+/* The bit-level justification of a denial: which permission rule decided it
+   and the rwx bits it yielded, e.g. "named ACL user entry: rw- & ACL mask
+   r-- = r--" or "Unix other bits: ---". Shown as the "proof:" line. */
+static void format_proof(const PermissionResult *perm, char *buf, size_t size)
+{
+    static const char *sources[] = {"none", "Unix owner bits", "Unix group bits",
+        "Unix other bits", "ACL owner entry", "named ACL user entry",
+        "matching ACL group entries", "ACL other entry", "root DAC override",
+        "CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "mount restriction"};
+    const char *src = perm->source <= PERMISSION_SOURCE_MOUNT
+                          ? sources[perm->source] : "unknown";
+    unsigned bits = perm->entry_permissions;
+    char entry[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+    if (perm->mask_applied)
+    {
+        bits = perm->mask_permissions;
+        char mask[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+        bits = perm->effective_permissions;
+        char effective[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
+        snprintf(buf, size, "%s: %s & ACL mask %s = %s", src, entry, mask, effective);
+    }
+    else
+        snprintf(buf, size, "%s: %s", src, entry);
+}
+
 static void render_tree(const AccessResult *result, AccessOperation op)
 {
     const AccessPath *ap = result->access_path;
@@ -181,26 +206,6 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             putchar(')');
         }
         putchar('\n');
-        if (is_block && comp->checked_permission_known)
-        {
-            static const char *sources[] = {"none", "Unix owner bits", "Unix group bits",
-                "Unix other bits", "ACL owner entry", "named ACL user entry",
-                "matching ACL group entries", "ACL other entry", "root DAC override",
-                "CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "mount restriction"};
-            unsigned bits = comp->checked_permission.entry_permissions;
-            char entry[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
-            bits = comp->checked_permission.effective_permissions;
-            char effective[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
-            PermissionSource source = comp->checked_permission.source;
-            printf("    decision    %s: %s", source <= PERMISSION_SOURCE_MOUNT ? sources[source] : "unknown", entry);
-            if (comp->checked_permission.mask_applied)
-            {
-                bits = comp->checked_permission.mask_permissions;
-                char mask[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
-                printf(" & ACL mask %s = %s", mask, effective);
-            }
-            putchar('\n');
-        }
     }
 }
 
@@ -223,13 +228,20 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     {
         printf("%s cannot %s %s\n", user->name, access_operation_name(op), target);
         if (result->blocked_path)
-            printf("\n  blocked at  %s\n", result->blocked_path);
+            printf("\n  %-12s%s\n", "blocked at:", result->blocked_path);
         char explanation[512];
         format_access_explanation(result, op, explanation, sizeof(explanation));
-        printf("  reason      %s\n", explanation);
+        printf("  %-12s%s\n", "cause:", explanation);
+        const PathComponent *blocked = access_blocked_component(result);
+        if (blocked && blocked->checked_permission_known)
+        {
+            char proof[128];
+            format_proof(&blocked->checked_permission, proof, sizeof(proof));
+            printf("  %-12s%s\n", "proof:", proof);
+        }
         char remedy[512];
         if (format_remediation(result, op, user->name, remedy, sizeof(remedy)))
-            printf("  to allow    %s\n", remedy);
+            printf("  %-12s%s\n", "to allow:", remedy);
     }
 
     /* MAC honesty: when the DAC/ACL verdict is "allowed" but a mandatory
@@ -240,7 +252,7 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     {
         char warn[256];
         mac_warning_message(mac, warn, sizeof(warn));
-        printf("\n  warning     %s\n", warn);
+        printf("\n  %-12s%s\n", "warning:", warn);
     }
 
     putchar('\n');

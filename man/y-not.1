@@ -38,18 +38,33 @@ groups that would actually help are listed. In JSON these are reported as a
 .B candidate_groups
 array.
 .PP
-For a denied access, y-not also prints a
-.B to allow
-line suggesting the least-privilege change that would make the modeled verdict
+For a denied access, the text output summarizes the denial on labelled lines:
+.B blocked at:
+the first component that blocks the operation,
+.B cause:
+the rule in plain language,
+.B proof:
+the permission source and the raw/effective
+.I rwx
+bits it read, and
+.B to allow:
+the least-privilege change that would make the modeled verdict
 .IR allowed :
 a
 .BR chmod (1)
 bit, a group membership, an ACL grant or an ACL mask widening - or, for a
 read-only or noexec mount, a note that the blocker is a mount option rather than
-a permission. The suggestion is advisory; y-not never runs it. In JSON it is the
+a permission. The suggestion is advisory; y-not never runs it.
+.PP
+These human-readable labels map to the JSON
+.BR reason ,
+.B decision
+and
 .B remediation
-field (or
-.BR null ).
+fields respectively (the JSON field names are a stable contract and are not
+renamed). When no permission change applies, such as a missing path, the
+remediation is
+.BR null .
 .SH OPERATION
 .TP
 .B read\fR, \fBr
