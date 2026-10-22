@@ -2,6 +2,13 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.5.1 — Make the suggested fix runnable
+
+Show `sudo` on a fix that needs it, so the suggestion actually works.
+
+- Prefix a remediation with `sudo` when it changes a file the requesting user does not own (group, other and ACL denials): only the owner or root can run the `chmod`/`setfacl`, so the previous command would have failed with a permission error
+- Leave owner denials as a plain `chmod u+…`, since the owner can apply it directly
+
 ## v1.5.0 — Actionable fixes and honest verdicts
 
 Every denial now comes with the least-privilege fix, and y-not is honest about what it cannot decide.

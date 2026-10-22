@@ -70,6 +70,11 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
                              ? "directory"
                              : "file";
 
+    /* Changing a file's mode or ACL requires being its owner or root. Only
+       REASON_OWNER_DENIED means the requesting user owns the object (an owner
+       denied through an ACL owner entry also maps to it), so that fix runs as
+       the user; every other denial is a non-owner and the command is prefixed
+       with sudo, without which it would fail with EPERM. */
     switch (result->reason)
     {
     case REASON_OWNER_DENIED:
@@ -78,7 +83,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
         return true;
     case REASON_GROUP_DENIED:
         snprintf(buffer, buffer_size,
-                 "add the permission for the %s's group: chmod g+%c %s",
+                 "add the permission for the %s's group: sudo chmod g+%c %s",
                  object, need, path);
         return true;
     case REASON_GROUP_MISSING:
@@ -97,7 +102,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
     }
     case REASON_OTHER_DENIED:
         snprintf(buffer, buffer_size,
-                 "grant only this user via ACL: setfacl -m u:%s:%c %s",
+                 "grant only this user via ACL: sudo setfacl -m u:%s:%c %s",
                  name, need, path);
         return true;
     case REASON_ACL_DENIED:
@@ -113,7 +118,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
             char mask[4];
             perms_letters(perm->mask_permissions | need_bit, mask);
             snprintf(buffer, buffer_size,
-                     "widen the ACL mask: setfacl -m m::%s %s", mask, path);
+                     "widen the ACL mask: sudo setfacl -m m::%s %s", mask, path);
         }
         else
         {
@@ -121,7 +126,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
             char grant[4];
             perms_letters(entry | need_bit, grant);
             snprintf(buffer, buffer_size,
-                     "extend this user's ACL entry: setfacl -m u:%s:%s %s",
+                     "extend this user's ACL entry: sudo setfacl -m u:%s:%s %s",
                      name, grant, path);
         }
         return true;

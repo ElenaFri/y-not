@@ -63,7 +63,7 @@ int main(void)
     /* In the group but the group bits deny. */
     check(REASON_GROUP_DENIED, ACCESS_READ, (PermissionResult){0},
           S_IFREG | 0600, false,
-          "add the permission for the file's group: chmod g+r /target");
+          "add the permission for the file's group: sudo chmod g+r /target");
 
     /* Not in the group that would grant it; the group name is resolved. */
     check(REASON_GROUP_MISSING, ACCESS_READ,
@@ -78,22 +78,23 @@ int main(void)
           "add elena to a group that grants it: sudo usermod -aG wheel elena, "
           "then log in again");
 
-    /* Neither owner nor group: least-privilege ACL grant for just this user. */
+    /* Neither owner nor group: least-privilege ACL grant for just this user.
+       The user does not own the file, so the setfacl needs sudo. */
     check(REASON_OTHER_DENIED, ACCESS_READ, (PermissionResult){0},
           S_IFREG | 0640, false,
-          "grant only this user via ACL: setfacl -m u:elena:r /target");
+          "grant only this user via ACL: sudo setfacl -m u:elena:r /target");
     check(REASON_OTHER_DENIED, ACCESS_WRITE, (PermissionResult){0},
           S_IFREG | 0604, false,
-          "grant only this user via ACL: setfacl -m u:elena:w /target");
+          "grant only this user via ACL: sudo setfacl -m u:elena:w /target");
     check(REASON_OTHER_DENIED, ACCESS_EXECUTE, (PermissionResult){0},
           S_IFREG | 0644, false,
-          "grant only this user via ACL: setfacl -m u:elena:x /target");
+          "grant only this user via ACL: sudo setfacl -m u:elena:x /target");
 
     /* ACL entry exists but does not grant; preserve the bits it already had. */
     check(REASON_ACL_DENIED, ACCESS_READ,
           (PermissionResult){.entry_permissions = 2, .effective_permissions = 2},
           S_IFREG | 0600, false,
-          "extend this user's ACL entry: setfacl -m u:elena:rw /target");
+          "extend this user's ACL entry: sudo setfacl -m u:elena:rw /target");
 
     /* The mask, not the entry, is the blocker: widen the mask, keeping its bits. */
     check(REASON_ACL_DENIED, ACCESS_READ,
@@ -101,7 +102,7 @@ int main(void)
               .entry_permissions = 5, .effective_permissions = 1,
               .mask_permissions = 1, .mask_applied = true},
           S_IFREG | 0600, false,
-          "widen the ACL mask: setfacl -m m::rx /target");
+          "widen the ACL mask: sudo setfacl -m m::rx /target");
 
     /* Mount restrictions are reported as mount options, not permissions. */
     check(REASON_MOUNT_READ_ONLY, ACCESS_WRITE, (PermissionResult){0},
@@ -154,7 +155,7 @@ int main(void)
                            .blocked_path = "/x"};
         CHECK(format_remediation(&acl, ACCESS_READ, "elena", out, sizeof(out)));
         CHECK(strcmp(out,
-                     "extend this user's ACL entry: setfacl -m u:elena:r /x") == 0);
+                     "extend this user's ACL entry: sudo setfacl -m u:elena:r /x") == 0);
     }
 
     /* No permission-level fix: not-found, loops, broken links, allowed, and a
@@ -191,7 +192,7 @@ int main(void)
         CHECK(!format_remediation(&r, ACCESS_READ, "elena", out, 0));
         CHECK(format_remediation(&r, ACCESS_READ, NULL, out, sizeof(out)));
         CHECK(strcmp(out,
-                     "grant only this user via ACL: setfacl -m u:USER:r /x") == 0);
+                     "grant only this user via ACL: sudo setfacl -m u:USER:r /x") == 0);
     }
 
     return TEST_SUMMARY();

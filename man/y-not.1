@@ -1,4 +1,4 @@
-.TH Y-NOT 1 "2026-10-22" "y-not 1.5.0" "User Commands"
+.TH Y-NOT 1 "2026-10-22" "y-not 1.5.1" "User Commands"
 .SH NAME
 y-not \- explain why a user can or cannot access a file or directory
 .SH SYNOPSIS
@@ -54,7 +54,10 @@ a
 .BR chmod (1)
 bit, a group membership, an ACL grant or an ACL mask widening - or, for a
 read-only or noexec mount, a note that the blocker is a mount option rather than
-a permission. The suggestion is advisory; y-not never runs it.
+a permission. The suggestion is advisory; y-not never runs it. A fix that
+changes a file the user does not own is prefixed with
+.BR sudo (8),
+since only the owner or root can apply it.
 .PP
 These human-readable labels map to the JSON
 .BR reason ,

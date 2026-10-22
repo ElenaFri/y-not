@@ -26,7 +26,7 @@ bob cannot read /srv/private/report.txt
   blocked at: /srv/private
   cause:      no traverse permission: not the owner and not in the directory's group
   proof:      Unix other bits: ---
-  to allow:   grant only this user via ACL: setfacl -m u:bob:x /srv/private
+  to allow:   grant only this user via ACL: sudo setfacl -m u:bob:x /srv/private
 
   /                           drwxr-xr-x  root:root   enter    ok
   └── srv                     drwxr-xr-x  root:root   enter    ok
@@ -62,7 +62,7 @@ nobody cannot write /tmp/demo/latest-report.csv
   blocked at: /tmp/demo/latest-report.csv
   cause:      an ACL entry grants you write, but the ACL mask removes it
   proof:      named ACL user entry: rw- & ACL mask r-- = r--
-  to allow:   widen the ACL mask: setfacl -m m::rw /tmp/demo/latest-report.csv
+  to allow:   widen the ACL mask: sudo setfacl -m m::rw /tmp/demo/latest-report.csv
 
   /                                                              drwxr-xr-x  root:root   enter    ok
   └── tmp                                                        drwxrwxrwx  root:root   enter    ok
@@ -138,7 +138,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - Root's DAC override behavior and grants listed in `/etc/security/capability.conf` for pam_cap.
 - Read-only (`ro`) and `noexec` mount restrictions visible in y-not's mount namespace.
 - The path trace, symbolic links, missing components, broken links and symlink loops.
-- A suggested least-privilege remediation for the blocking component (`chmod`, group membership, an ACL grant or mask widening), or a note that a read-only/noexec mount, not a permission, is the blocker.
+- A suggested least-privilege remediation for the blocking component (`chmod`, group membership, an ACL grant or mask widening), or a note that a read-only/noexec mount, not a permission, is the blocker. Fixes that change a file you do not own are prefixed with `sudo`, since only the owner or root can apply them.
 
 ## Limits and scope
 

@@ -253,7 +253,7 @@ static void check_acl_decision_is_explained(void)
     if (text)
     {
         CHECK(strstr(text, "an ACL entry grants you write, but the ACL mask removes it") != NULL);
-        CHECK(strstr(text, "widen the ACL mask: setfacl -m m::rw /report.txt") != NULL);
+        CHECK(strstr(text, "widen the ACL mask: sudo setfacl -m m::rw /report.txt") != NULL);
         CHECK(strstr(text, "BLOCKED") != NULL);
         CHECK(strstr(text, "named ACL user entry: rw- & ACL mask r-- = r--") != NULL);
         CHECK(strstr(text, "SELinux: enforcing") != NULL);
