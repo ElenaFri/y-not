@@ -37,6 +37,19 @@ For ACLs, the effective permissions after the ACL mask are considered, so only
 groups that would actually help are listed. In JSON these are reported as a
 .B candidate_groups
 array.
+.PP
+For a denied access, y-not also prints a
+.B to allow
+line suggesting the least-privilege change that would make the modeled verdict
+.IR allowed :
+a
+.BR chmod (1)
+bit, a group membership, an ACL grant or an ACL mask widening - or, for a
+read-only or noexec mount, a note that the blocker is a mount option rather than
+a permission. The suggestion is advisory; y-not never runs it. In JSON it is the
+.B remediation
+field (or
+.BR null ).
 .SH OPERATION
 .TP
 .B read\fR, \fBr
@@ -89,6 +102,14 @@ y-not's own mount namespace, which may differ from the target process's
 namespace. Directory write checks model entry creation (write plus traversal),
 not removal or rename of a specific entry; those may also depend on the sticky
 bit and entry ownership.
+.PP
+.B y-not
+inspects each path component with the privileges of the user who runs it, not
+those of the target user. If a parent directory denies the running process
+search, y-not cannot inspect what lies beneath it; it then reports that the path
+could not be inspected and leaves the verdict undetermined rather than guessing.
+Run y-not as root, or as a user who can traverse the whole path, for a complete
+diagnosis.
 .SH SEE ALSO
 .BR stat (1),
 .BR getfacl (1),

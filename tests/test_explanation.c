@@ -113,6 +113,50 @@ int main(void)
         1234, true,
         "you own this directory but lack traverse permission");
 
+    /* ACL denial where the entry itself lacks the bit (no mask involved). */
+    check_explanation(
+        REASON_ACL_DENIED, ACCESS_READ,
+        (PermissionResult){
+            .reason = REASON_ACL_DENIED,
+            .source = PERMISSION_SOURCE_ACL_USER,
+        },
+        1234, false,
+        "an ACL entry applies to you but does not grant read permission");
+
+    /* ACL denial where the mask, not the entry, strips the requested bit:
+       the entry grants rw- but the mask limits the effective rights. */
+    check_explanation(
+        REASON_ACL_DENIED, ACCESS_WRITE,
+        (PermissionResult){
+            .reason = REASON_ACL_DENIED,
+            .source = PERMISSION_SOURCE_ACL_USER,
+            .entry_permissions = 6, .effective_permissions = 4,
+            .mask_permissions = 4, .mask_applied = true,
+        },
+        1234, false,
+        "an ACL entry grants you write, but the ACL mask removes it");
+
+    /* A mask is applied but the entry still lacks the bit: not a mask story. */
+    check_explanation(
+        REASON_ACL_DENIED, ACCESS_WRITE,
+        (PermissionResult){
+            .reason = REASON_ACL_DENIED,
+            .source = PERMISSION_SOURCE_ACL_USER,
+            .entry_permissions = 4, .effective_permissions = 4,
+            .mask_permissions = 7, .mask_applied = true,
+        },
+        1234, false,
+        "an ACL entry applies to you but does not grant write permission");
+
+    /* A component y-not itself could not inspect (EACCES while resolving the
+       path): the target user's verdict is undetermined, so the message is
+       honest about the inspection failure rather than claiming a denial. */
+    check_explanation(
+        REASON_NOT_TRAVERSABLE, ACCESS_READ, (PermissionResult){0},
+        0, false,
+        "this path could not be inspected: y-not was denied access "
+        "while resolving it; re-run it as root for a full verdict");
+
     /* A missing-group denial on a parent component concerns traversal, not
        the final requested operation. */
     {

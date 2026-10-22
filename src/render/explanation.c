@@ -19,7 +19,7 @@ const char *access_operation_name(AccessOperation op)
     }
 }
 
-static const PathComponent *find_blocked_component(const AccessResult *result)
+const PathComponent *access_blocked_component(const AccessResult *result)
 {
     if (!result->access_path || !result->blocked_path)
         return NULL;
@@ -73,7 +73,7 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
     if (!buffer || buffer_size == 0)
         return;
 
-    const PathComponent *blocked = find_blocked_component(result);
+    const PathComponent *blocked = access_blocked_component(result);
     bool blocked_is_last = true;
     if (result->access_path && result->blocked_path && result->access_path->count > 0)
     {
@@ -149,9 +149,25 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
                  object, operation);
         break;
     case REASON_ACL_DENIED:
-        snprintf(buffer, buffer_size,
-                 "ACL entry found for you but it does not grant %s permission", operation);
+    {
+        bool traversal = !blocked_is_last || result->blocked_on_traversal;
+        unsigned bit = traversal ? 1u
+                                 : (op == ACCESS_READ ? 4u
+                                    : op == ACCESS_WRITE ? 2u : 1u);
+        bool mask_blocks = blocked && blocked->checked_permission_known &&
+                           blocked->checked_permission.mask_applied &&
+                           (blocked->checked_permission.entry_permissions & bit) &&
+                           !(blocked->checked_permission.effective_permissions & bit);
+        if (mask_blocks)
+            snprintf(buffer, buffer_size,
+                     "an ACL entry grants you %s, but the ACL mask removes it",
+                     operation);
+        else
+            snprintf(buffer, buffer_size,
+                     "an ACL entry applies to you but does not grant %s permission",
+                     operation);
         break;
+    }
     case REASON_OTHER_DENIED:
         if (op == ACCESS_EXECUTE && blocked && S_ISREG(blocked->st.st_mode))
             snprintf(buffer, buffer_size,
@@ -162,7 +178,9 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
                      operation, group_object);
         break;
     case REASON_NOT_TRAVERSABLE:
-        snprintf(buffer, buffer_size, "cannot enter this directory");
+        snprintf(buffer, buffer_size,
+                 "this path could not be inspected: y-not was denied access "
+                 "while resolving it; re-run it as root for a full verdict");
         break;
     case REASON_NOT_FOUND:
         snprintf(buffer, buffer_size, "no such file or directory");
@@ -173,7 +191,7 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
         break;
     case REASON_SYMLINK_LOOP:
         snprintf(buffer, buffer_size,
-                 "too many levels of symbolic links (possible loop)");
+                 "too many levels of symbolic links, likely a loop");
         break;
     case REASON_MOUNT_READ_ONLY:
         snprintf(buffer, buffer_size, "filesystem is mounted read-only");

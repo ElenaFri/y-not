@@ -1,5 +1,6 @@
 #include "render/output.h"
 #include "render/explanation.h"
+#include "render/remediation.h"
 
 #include <grp.h>
 #include <limits.h>
@@ -149,6 +150,8 @@ static void render_tree(const AccessResult *result, AccessOperation op)
                 msg = "(broken symlink)";
             else if (comp->denial_reason == REASON_SYMLINK_LOOP)
                 msg = "(symlink loop)";
+            else if (comp->denial_reason == REASON_NOT_TRAVERSABLE)
+                msg = "(access denied)";
             printf("%s\n", msg);
             continue;
         }
@@ -224,6 +227,9 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
         char explanation[512];
         format_access_explanation(result, op, explanation, sizeof(explanation));
         printf("  reason      %s\n", explanation);
+        char remedy[512];
+        if (format_remediation(result, op, user->name, remedy, sizeof(remedy)))
+            printf("  to allow    %s\n", remedy);
     }
 
     /* MAC honesty: when the DAC/ACL verdict is "allowed" but a mandatory

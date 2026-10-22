@@ -252,7 +252,8 @@ static void check_acl_decision_is_explained(void)
     CHECK(text != NULL);
     if (text)
     {
-        CHECK(strstr(text, "ACL entry found for you") != NULL);
+        CHECK(strstr(text, "an ACL entry grants you write, but the ACL mask removes it") != NULL);
+        CHECK(strstr(text, "widen the ACL mask: setfacl -m m::rw /report.txt") != NULL);
         CHECK(strstr(text, "BLOCKED") != NULL);
         CHECK(strstr(text, "named ACL user entry: rw- & ACL mask r-- = r--") != NULL);
         CHECK(strstr(text, "SELinux: enforcing") != NULL);
@@ -580,12 +581,50 @@ static void check_mac_warning_on_allowed_verdict(void)
     if (text)
     {
         CHECK(strstr(text, "warning") == NULL);
+        /* A denial also prints an actionable remediation line. */
+        CHECK(strstr(text, "to allow") != NULL);
+        CHECK(strstr(text, "chmod u+") != NULL);
         free(text);
     }
 
     mock_selinux = (SelinuxStatus){0};
     mock_apparmor = (ApparmorStatus){0};
     free(comps[0].path);
+}
+
+/* A component y-not could not stat (EACCES while resolving) must render
+   honestly: the reason admits the inspection failure, no "to allow" line is
+   printed (no permission change would help), and the tree marks the component
+   "(access denied)" rather than the misleading "(not found)". */
+static void check_uninspectable_component_is_honest(void)
+{
+    PathComponent comps[3] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_execute = true;
+    comps[1].path = strdup("/private");
+    comps[1].denial_reason = REASON_NOT_TRAVERSABLE; /* st stays zeroed */
+    comps[2].path = strdup("/private/target");
+
+    AccessPath ap = {.components = comps, .count = 3};
+    AccessResult result = {.allowed = false, .reason = REASON_NOT_TRAVERSABLE,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "root"};
+
+    char *text = render_and_capture(&result, &user, ACCESS_READ);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "this path could not be inspected") != NULL);
+        CHECK(strstr(text, "re-run it as root for a full verdict") != NULL);
+        CHECK(strstr(text, "to allow") == NULL);
+        CHECK(strstr(text, "(access denied)") != NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+    free(comps[2].path);
 }
 
 int main(void)
@@ -603,5 +642,6 @@ int main(void)
     check_component_after_the_blocked_one();
     check_defensive_default_cases();
     check_mac_warning_on_allowed_verdict();
+    check_uninspectable_component_is_honest();
     return TEST_SUMMARY();
 }

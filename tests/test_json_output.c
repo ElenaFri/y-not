@@ -658,6 +658,8 @@ static void check_mac_block_in_json(void)
     {
         CHECK(strstr(json, "\"may_override_verdict\": false") != NULL);
         CHECK(strstr(json, "\"warning\": null") != NULL);
+        /* The denied envelope carries a remediation string, not null. */
+        CHECK(strstr(json, "\"remediation\": \"add the missing permission: chmod u+r") != NULL);
         free(json);
     }
 
@@ -670,6 +672,7 @@ static void check_mac_block_in_json(void)
         CHECK(strstr(json, "\"mac\": {") != NULL);
         CHECK(strstr(json, "\"selinux\": {\"available\": true, \"enforcing\": false}") != NULL);
         CHECK(strstr(json, "\"may_override_verdict\": false") != NULL);
+        CHECK(strstr(json, "\"remediation\": null") != NULL);
         free(json);
     }
 

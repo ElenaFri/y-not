@@ -147,13 +147,19 @@ $(BUILDDIR)/test_explanation: $(TESTDIR)/test_explanation.c \
 # Status providers are mocked in test_output for deterministic active/inactive cases.
 $(BUILDDIR)/test_output: $(TESTDIR)/test_output.c \
     $(SRCDIR)/render/output.c $(SRCDIR)/render/explanation.c \
-    $(SRCDIR)/context/mac_warning.c | $(BUILDDIR)
+    $(SRCDIR)/render/remediation.c $(SRCDIR)/context/mac_warning.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
 $(BUILDDIR)/test_json_output: $(TESTDIR)/test_json_output.c \
     $(SRCDIR)/render/json_output.c $(SRCDIR)/render/explanation.c \
-    $(SRCDIR)/context/mac_warning.c | $(BUILDDIR)
+    $(SRCDIR)/render/remediation.c $(SRCDIR)/context/mac_warning.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
+# Pure remediation-advice logic, unit-tested without touching the filesystem.
+$(BUILDDIR)/test_remediation: $(TESTDIR)/test_remediation.c \
+    $(SRCDIR)/render/remediation.c $(SRCDIR)/render/explanation.c | $(BUILDDIR)
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 

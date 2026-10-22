@@ -1,5 +1,6 @@
 #include "render/json_output.h"
 #include "render/explanation.h"
+#include "render/remediation.h"
 
 #include "context/apparmor_info.h"
 #include "context/mac_warning.h"
@@ -268,6 +269,12 @@ void render_result_json(const AccessResult *result, const char *username,
     printf("  \"reason\": \"%s\",\n", reason_code(result->reason));
     printf("  \"explanation\": ");
     json_print_string(explanation);
+    char remedy[512];
+    printf(",\n  \"remediation\": ");
+    if (format_remediation(result, op, username, remedy, sizeof(remedy)))
+        json_print_string(remedy);
+    else
+        fputs("null", stdout);
     printf(",\n  \"blocked_at\": ");
     json_print_string_or_null(result->blocked_path);
     printf(",\n");
@@ -316,7 +323,7 @@ void render_user_not_found_json(const char *username, AccessOperation op,
     printf("  \"reason\": \"user_not_found\",\n");
     printf("  \"explanation\": ");
     json_print_string(explanation);
-    printf(",\n  \"blocked_at\": null,\n");
+    printf(",\n  \"remediation\": null,\n  \"blocked_at\": null,\n");
     print_mac(false);
     printf("  \"trace\": []\n");
     printf("}\n");
