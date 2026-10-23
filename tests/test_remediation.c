@@ -114,6 +114,23 @@ int main(void)
           "this is a noexec mount, not a permission; "
           "remount without noexec to allow execution");
 
+    /* Sticky directory: the least-privilege grant is transferring ownership of
+       the entry to the user, which needs sudo (chown to another user is root). */
+    check(REASON_STICKY_BIT, ACCESS_DELETE, (PermissionResult){0},
+          S_IFREG | 0644, false,
+          "take ownership of the entry so the sticky directory lets you "
+          "remove it: sudo chown elena /target");
+
+    /* Structural kernel refusals: no fix, but the line states it is by design. */
+    check(REASON_DELETE_ROOT, ACCESS_DELETE, (PermissionResult){0},
+          S_IFDIR | 0755, false,
+          "the filesystem root cannot be removed; this is a kernel rule, "
+          "not a permission");
+    check(REASON_DELETE_SPECIAL, ACCESS_DELETE, (PermissionResult){0},
+          S_IFDIR | 0755, false,
+          "the . and .. entries cannot be removed; this is a kernel rule, "
+          "not a permission");
+
     /* Blocked on traversal of a parent directory: the needed bit is search. */
     {
         PathComponent components[3] = {0};

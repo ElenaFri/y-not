@@ -102,6 +102,37 @@ nobody cannot read /tmp/demo/report.csv
 
 Only groups whose rights survive the ACL mask are listed, so the suggestion is actionable: joining any one of them would grant access. In JSON this appears as a `candidate_groups` array in the blocked component's `decision` object.
 
+## Who can delete this file? Sticky directories
+
+A world-writable directory looks like anyone may remove anything inside it, and the file's own bits look unremarkable:
+
+```text
+$ ls -ld /srv/uploads
+drwxrwxrwt 2 alice alice 60 ... /srv/uploads
+$ ls -l /srv/uploads/report.csv
+-rw-r--r-- 1 alice alice 11 ... /srv/uploads/report.csv
+```
+
+But the trailing `t` is the sticky bit: it restricts removing an entry to the entry's owner, the directory's owner or root. So another user cannot delete the file even though the directory is writable to everyone:
+
+```text
+$ y-not bob delete /srv/uploads/report.csv
+
+bob cannot delete /srv/uploads/report.csv
+
+  blocked at: /srv/uploads/report.csv
+  cause:      the parent directory has the sticky bit; you own neither the entry nor the directory
+  proof:      sticky bit set; entry owner alice, directory owner alice
+  to allow:   take ownership of the entry so the sticky directory lets you remove it: sudo chown bob /srv/uploads/report.csv
+
+  /                       drwxr-xr-x  root:root     enter         ok
+  └── srv                 drwxr-xr-x  root:root     enter         ok
+      └── uploads         drwxrwxrwt  alice:alice   delete entry  ok
+          └── report.csv  -rw-r--r--  alice:alice   enter         BLOCKED
+```
+
+Deleting a name is a property of the *parent* directory, not the file: `delete` checks write and search on the parent, then applies the sticky-bit ownership rule. The trace confirms `bob` may create entries in `uploads` (`delete entry  ok`) yet still cannot remove this one. Removal is governed by ownership of the entry (or the directory, or root) rather than a file permission bit, so the `to allow:` line names the least-privilege change that applies: transferring ownership of the entry to `bob`. In JSON the reason code is `sticky_bit`, `remediation` carries that same suggestion, and the target component gains an additive `entry_owner` field.
+
 ## Install
 
 Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:

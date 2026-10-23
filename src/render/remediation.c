@@ -142,8 +142,21 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
                  "remount without noexec to allow execution");
         return true;
     case REASON_STICKY_BIT:
+        snprintf(buffer, buffer_size,
+                 "take ownership of the entry so the sticky directory lets you "
+                 "remove it: sudo chown %s %s",
+                 name, path);
+        return true;
     case REASON_DELETE_ROOT:
-        return false;
+        snprintf(buffer, buffer_size,
+                 "the filesystem root cannot be removed; this is a kernel rule, "
+                 "not a permission");
+        return true;
+    case REASON_DELETE_SPECIAL:
+        snprintf(buffer, buffer_size,
+                 "the . and .. entries cannot be removed; this is a kernel rule, "
+                 "not a permission");
+        return true;
     default:
         /* NOT_TRAVERSABLE, NOT_FOUND, BROKEN_SYMLINK, SYMLINK_LOOP: no
            permission change would make this access succeed. For
