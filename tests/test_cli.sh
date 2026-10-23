@@ -51,10 +51,18 @@ expect_exit "operation alias: write"   0 "$BIN" "$USER_NAME" write   /tmp
 expect_exit "operation alias: w"       0 "$BIN" "$USER_NAME" w      /tmp
 expect_exit "operation alias: execute" 0 "$BIN" "$USER_NAME" execute /usr/bin/ls
 expect_exit "operation alias: x"       0 "$BIN" "$USER_NAME" x       /usr/bin/ls
-expect_exit "operation alias: delete"  1 "$BIN" "$USER_NAME" delete /etc/hosts
-expect_exit "operation alias: d"       1 "$BIN" "$USER_NAME" d      /etc/hosts
+# delete needs a path whose verdict is the same for root and a normal user, so
+# use a file inside a directory the current user owns: deletion is allowed there
+# (the alias is accepted and evaluated), which a system path cannot guarantee
+# because root bypasses DAC.
+DEL_DIR=$(mktemp -d)
+DEL_FILE="$DEL_DIR/entry"
+: > "$DEL_FILE"
+trap 'rm -rf "$DEL_DIR"' EXIT
+expect_exit "operation alias: delete"  0 "$BIN" "$USER_NAME" delete "$DEL_FILE"
+expect_exit "operation alias: d"       0 "$BIN" "$USER_NAME" d      "$DEL_FILE"
 expect_contains "JSON reports delete operation" "\"operation\": \"delete\"" \
-    "$BIN" --json "$USER_NAME" delete /etc/hosts
+    "$BIN" --json "$USER_NAME" delete "$DEL_FILE"
 
 # Exit code contract: 0 = allowed, 1 = denied (scripts rely on this)
 expect_exit "denied path exits 1" 1 "$BIN" "$USER_NAME" read /var/__y_not_no_such_path__
