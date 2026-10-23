@@ -118,14 +118,14 @@ The package's runtime dependencies are generated from the linked binary. The rel
 y-not [--json] USER OPERATION PATH
 ```
 
-`OPERATION` is `read`/`r`, `write`/`w` or `execute`/`x`. `--json` must appear first.
+`OPERATION` is `read`/`r`, `write`/`w`, `execute`/`x` or `delete`/`d`. `--json` must appear first.
 
 ```sh
 y-not alice read /srv/project/report.pdf
 y-not --json alice write /srv/project
 ```
 
-On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. This generic check does not decide whether a particular directory entry may be removed or renamed: the entry's ownership and sticky-directory rules can affect that.
+On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. `delete` checks whether the named directory entry may be removed: the parent needs write and search permission, and a sticky directory additionally restricts removal to the entry owner, directory owner or root. This models unlinking a name; it does not model renaming, removing a non-empty directory, `.`/`..` entries, immutable attributes, or process-specific security policy.
 
 The text output's `cause:`, `proof:` and `to allow:` lines correspond to the JSON `reason`, `decision` and `remediation` fields: the text uses plain-language labels for a human reader, while the JSON keys are a stable machine contract and do not change.
 
@@ -133,7 +133,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 
 ## What is checked
 
-- Unix owner/group/other mode bits and supplementary group membership.
+- Unix owner/group/other mode bits and supplementary group membership, including sticky-directory restrictions for `delete`.
 - POSIX ACL owner, named-user, group and other entries, including the effective ACL mask.
 - Root's DAC override behavior and grants listed in `/etc/security/capability.conf` for pam_cap.
 - Read-only (`ro`) and `noexec` mount restrictions visible in y-not's mount namespace.
@@ -147,7 +147,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - **SELinux and AppArmor do not change the verdict, but an active module is flagged.** y-not evaluates DAC/ACL only; it does not simulate SELinux policy, and AppArmor confinement is process/profile-specific and cannot be inferred from a user, operation and path alone. When the verdict is *allowed* and SELinux is enforcing or AppArmor has loaded profiles, y-not prints a prominent warning that the kernel may still deny a confined process (and sets `may_override_verdict` in the JSON `mac` object), so an "allowed" result is never mistaken for "unrestricted".
 - **Capabilities are approximated.** pam_cap grants are read from `/etc/security/capability.conf`; file capabilities are displayed, but y-not does not simulate the effective capability set of an actual target process.
 - **Mount flags are namespace-specific.** `ro` and `noexec` affect the modeled result; `nosuid` is reported as context only. A service or container in another mount namespace may see different flags.
-- **Writes to directories mean creating a name.** Removal/rename checks, sticky-bit ownership rules, ACL inheritance, races between inspection and use, and application-specific behavior are outside this check.
+- **Directory operations are specific.** `write` on a directory models creating an entry; `delete` models removing the named entry and includes sticky-bit ownership checks. Rename, removing a non-empty directory, immutable attributes, ACL inheritance, and races between inspection and use are outside the model.
 - **y-not inspects the path with its own privileges.** It reads each component's metadata as the user who runs `y-not`, not as the target user. If a parent directory denies the running process search, y-not cannot inspect what lies beneath it; it then reports that the path could not be inspected and the verdict is undetermined, rather than guessing. Run `y-not` as root (or as a user who can traverse the whole path) for a complete diagnosis.
 - **Kernel and security-module behavior remains authoritative.** The actual result can also depend on the process credentials, namespaces, filesystem implementation and active security policy.
 

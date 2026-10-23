@@ -27,6 +27,9 @@ static const char *reason_code(AccessReason r)
     case REASON_SYMLINK_LOOP:    return "symlink_loop";
     case REASON_MOUNT_READ_ONLY: return "mount_read_only";
     case REASON_MOUNT_NOEXEC:    return "mount_noexec";
+    case REASON_STICKY_BIT:      return "sticky_bit";
+    case REASON_DELETE_ROOT:    return "delete_root";
+    case REASON_DELETE_SPECIAL: return "delete_special";
     default:                     return "unknown";
     }
 }
@@ -112,7 +115,8 @@ static void permission_text(unsigned bits, char out[4])
 }
 
 static void print_trace_component(const PathComponent *comp, bool checked_full_op,
-                                  bool is_blocked, AccessOperation op, bool *first)
+                                  bool is_blocked, bool is_target, AccessOperation op,
+                                  bool *first)
 {
     if (!*first)
         fputs(",\n", stdout);
@@ -130,6 +134,15 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     if (stat_failed)
     {
         printf("      \"resolved\": false,\n");
+        if (op == ACCESS_DELETE && is_target && comp->link_st_known)
+        {
+            char entry_owner_buf[16];
+            const char *entry_owner = uid_to_name(comp->link_st.st_uid, entry_owner_buf,
+                                                  sizeof(entry_owner_buf));
+            printf("      \"entry_owner\": ");
+            json_print_string(entry_owner);
+            printf(",\n");
+        }
         printf("      \"checked\": \"%s\",\n", checked_full_op ? access_operation_name(op) : "enter");
         printf("      \"allowed\": false\n");
         printf("    }");
@@ -148,6 +161,14 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     json_print_string(owner);
     printf(",\n      \"group\": ");
     json_print_string(grp);
+    if (op == ACCESS_DELETE && is_target && comp->link_st_known)
+    {
+        char entry_owner_buf[16];
+        const char *entry_owner = uid_to_name(comp->link_st.st_uid, entry_owner_buf,
+                                              sizeof(entry_owner_buf));
+        printf(",\n      \"entry_owner\": ");
+        json_print_string(entry_owner);
+    }
     printf(",\n      \"symlink_target\": ");
     json_print_string_or_null(comp->symlink_target);
     printf(",\n      \"capabilities\": ");
@@ -298,11 +319,13 @@ void render_result_json(const AccessResult *result, const char *username,
         bool first = true;
         for (size_t i = 0; i < limit; i++)
         {
-            bool checked_full_op = (i == count - 1) &&
+            bool checked_full_op = (op == ACCESS_DELETE
+                                        ? i == count - 2
+                                        : i == count - 1) &&
                                    !result->blocked_on_traversal;
             bool is_blocked = (i == limit - 1) && !result->allowed;
             print_trace_component(&result->access_path->components[i], checked_full_op,
-                                  is_blocked, op, &first);
+                                  is_blocked, i == count - 1, op, &first);
         }
         if (!first)
             putchar('\n');

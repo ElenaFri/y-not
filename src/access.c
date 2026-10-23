@@ -2,6 +2,102 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
+
+static AccessResult deny_at(AccessPath *ap, PathComponent *component,
+                            AccessReason reason, bool traversal)
+{
+    char *blocked = strdup(component->path);
+    if (!blocked)
+    {
+        path_free(ap);
+        return (AccessResult){.allowed = false, .reason = REASON_NOT_FOUND};
+    }
+    component->denial_reason = reason;
+    return (AccessResult){.allowed = false, .blocked_path = blocked,
+                          .reason = reason, .blocked_on_traversal = traversal,
+                          .access_path = ap};
+}
+
+static bool is_dot_entry(const char *path)
+{
+    if (!path)
+        return false;
+    size_t len = strlen(path);
+    while (len > 1 && path[len - 1] == '/')
+        len--;
+    size_t start = len;
+    while (start > 0 && path[start - 1] != '/')
+        start--;
+    size_t name_len = len - start;
+    return (name_len == 1 && path[start] == '.') ||
+           (name_len == 2 && path[start] == '.' && path[start + 1] == '.');
+}
+
+static AccessResult check_delete(const User *user, AccessPath *ap)
+{
+    if (!ap || ap->count == 0)
+        return (AccessResult){.allowed = false, .reason = REASON_NOT_FOUND};
+    if (ap->count == 1)
+        return deny_at(ap, &ap->components[0], REASON_DELETE_ROOT, false);
+    if (is_dot_entry(ap->components[ap->count - 1].path))
+        return deny_at(ap, &ap->components[ap->count - 1],
+                       REASON_DELETE_SPECIAL, false);
+
+    size_t parent_index = ap->count - 2;
+    PathComponent *parent = &ap->components[parent_index];
+    PathComponent *target = &ap->components[ap->count - 1];
+
+    for (size_t i = 0; i <= parent_index; i++)
+    {
+        PathComponent *component = &ap->components[i];
+        if (component->denial_reason != REASON_NONE)
+            return deny_at(ap, component, component->denial_reason, false);
+
+        PermissionResult search = evaluate_permissions(user, &component->st,
+                                                       ACCESS_EXECUTE, component->acl);
+        component->can_execute = search.allowed;
+        if (!search.allowed)
+        {
+            component->checked_permission = search;
+            component->checked_permission_known = true;
+            return deny_at(ap, component, search.reason, true);
+        }
+        if (i == parent_index)
+        {
+            PermissionResult write = evaluate_permissions(user, &component->st,
+                                                          ACCESS_WRITE, component->acl);
+            component->can_write = write.allowed;
+            if (!write.allowed)
+            {
+                component->checked_permission = write;
+                component->checked_permission_known = true;
+                return deny_at(ap, component, write.reason, false);
+            }
+            AccessReason mount = mount_restriction_reason(
+                component->mount_flags_known, component->mount_read_only,
+                component->mount_noexec, &component->st, ACCESS_WRITE);
+            if (mount != REASON_NONE)
+            {
+                component->checked_permission = (PermissionResult){
+                    .allowed = false, .reason = mount, .source = PERMISSION_SOURCE_MOUNT};
+                component->checked_permission_known = true;
+                return deny_at(ap, component, mount, false);
+            }
+            component->checked_permission = write;
+            component->checked_permission_known = true;
+        }
+    }
+
+    if (!target->link_st_known)
+        return deny_at(ap, target, REASON_NOT_FOUND, false);
+
+    if ((parent->st.st_mode & S_ISVTX) && user->uid != 0 &&
+        user->uid != parent->st.st_uid && user->uid != target->link_st.st_uid)
+        return deny_at(ap, target, REASON_STICKY_BIT, false);
+
+    return (AccessResult){.allowed = true, .reason = REASON_NONE, .access_path = ap};
+}
 
 AccessResult check_access(const User *user,
                           const char *path,
@@ -10,6 +106,8 @@ AccessResult check_access(const User *user,
     AccessPath *ap = path_resolve(path);
     if (!ap)
         return (AccessResult){.allowed = false, .reason = REASON_NOT_FOUND};
+    if (operation == ACCESS_DELETE)
+        return check_delete(user, ap);
 
     for (size_t i = 0; i < ap->count; i++)
     {

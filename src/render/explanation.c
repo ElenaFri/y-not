@@ -14,6 +14,8 @@ const char *access_operation_name(AccessOperation op)
         return "write";
     case ACCESS_EXECUTE:
         return "execute";
+    case ACCESS_DELETE:
+        return "delete";
     default:
         return "access";
     }
@@ -119,9 +121,11 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
     const char *group_object = blocked && S_ISDIR(blocked->st.st_mode)
                                    ? "directory's group"
                                    : "file's group";
-    const char *operation = blocked_is_last && !result->blocked_on_traversal
-                                ? access_operation_name(op)
-                                : "traverse";
+    const char *operation = op == ACCESS_DELETE
+                                ? (result->blocked_on_traversal ? "traverse" : "write")
+                                : blocked_is_last && !result->blocked_on_traversal
+                                      ? access_operation_name(op)
+                                      : "traverse";
 
     switch (result->reason)
     {
@@ -153,7 +157,7 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
         bool traversal = !blocked_is_last || result->blocked_on_traversal;
         unsigned bit = traversal ? 1u
                                  : (op == ACCESS_READ ? 4u
-                                    : op == ACCESS_WRITE ? 2u : 1u);
+                                    : (op == ACCESS_WRITE || op == ACCESS_DELETE) ? 2u : 1u);
         bool mask_blocks = blocked && blocked->checked_permission_known &&
                            blocked->checked_permission.mask_applied &&
                            (blocked->checked_permission.entry_permissions & bit) &&
@@ -198,6 +202,16 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
         break;
     case REASON_MOUNT_NOEXEC:
         snprintf(buffer, buffer_size, "filesystem is mounted with noexec");
+        break;
+    case REASON_STICKY_BIT:
+        snprintf(buffer, buffer_size,
+                 "the parent directory has the sticky bit; you own neither the entry nor the directory");
+        break;
+    case REASON_DELETE_ROOT:
+        snprintf(buffer, buffer_size, "the filesystem root cannot be deleted");
+        break;
+    case REASON_DELETE_SPECIAL:
+        snprintf(buffer, buffer_size, "the special . and .. directory entries cannot be deleted");
         break;
     default:
         snprintf(buffer, buffer_size, "unknown");

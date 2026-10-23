@@ -186,9 +186,11 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         const char *owner = uid_to_name(comp->st.st_uid, ubuf, sizeof(ubuf));
         const char *grp = gid_to_name(comp->st.st_gid, gbuf, sizeof(gbuf));
 
-        const char *checked = (is_last && !result->blocked_on_traversal)
-                                  ? access_operation_name(op)
-                                  : "enter";
+        const char *checked = op == ACCESS_DELETE
+                                  ? (i == ap->count - 2 ? "delete entry" : "enter")
+                                  : (is_last && !result->blocked_on_traversal)
+                                        ? access_operation_name(op)
+                                        : "enter";
         printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
                owner, grp, checked, is_block ? "BLOCKED" : "ok");
@@ -238,6 +240,21 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
             char proof[128];
             format_proof(&blocked->checked_permission, proof, sizeof(proof));
             printf("  %-12s%s\n", "proof:", proof);
+        }
+        else if (result->reason == REASON_STICKY_BIT && result->access_path &&
+                 result->access_path->count >= 2)
+        {
+            const PathComponent *entry =
+                &result->access_path->components[result->access_path->count - 1];
+            const PathComponent *parent =
+                &result->access_path->components[result->access_path->count - 2];
+            char entry_owner_buf[16], dir_owner_buf[16];
+            const char *entry_owner = uid_to_name(entry->link_st.st_uid, entry_owner_buf,
+                                                  sizeof(entry_owner_buf));
+            const char *dir_owner = uid_to_name(parent->st.st_uid, dir_owner_buf,
+                                                sizeof(dir_owner_buf));
+            printf("  %-12ssticky bit set; entry owner %s, directory owner %s\n",
+                   "proof:", entry_owner, dir_owner);
         }
         char remedy[512];
         if (format_remediation(result, op, user->name, remedy, sizeof(remedy)))

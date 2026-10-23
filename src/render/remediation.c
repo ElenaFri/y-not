@@ -34,7 +34,7 @@ static char need_perm_char(AccessOperation op, bool traversal)
 {
     if (traversal)
         return 'x'; /* a parent (or a final directory being written) needs search */
-    return op == ACCESS_READ ? 'r' : op == ACCESS_WRITE ? 'w' : 'x';
+    return op == ACCESS_READ ? 'r' : (op == ACCESS_WRITE || op == ACCESS_DELETE) ? 'w' : 'x';
 }
 
 static bool blocked_is_last_component(const AccessResult *result)
@@ -61,7 +61,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
     const char *path = result->blocked_path ? result->blocked_path : "PATH";
     const char *name = user_name ? user_name : "USER";
 
-    bool traversal = !blocked_is_last_component(result) ||
+    bool traversal = (op != ACCESS_DELETE && !blocked_is_last_component(result)) ||
                      result->blocked_on_traversal;
     char need = need_perm_char(op, traversal);
     unsigned need_bit = need == 'r' ? 4u : need == 'w' ? 2u : 1u;
@@ -141,6 +141,9 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
                  "this is a noexec mount, not a permission; "
                  "remount without noexec to allow execution");
         return true;
+    case REASON_STICKY_BIT:
+    case REASON_DELETE_ROOT:
+        return false;
     default:
         /* NOT_TRAVERSABLE, NOT_FOUND, BROKEN_SYMLINK, SYMLINK_LOOP: no
            permission change would make this access succeed. For

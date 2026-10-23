@@ -58,6 +58,83 @@ static void check_noexec_mount_is_the_reported_blocker(const User *user)
     rmdir(dir);
 }
 
+static void check_sticky_directory_delete(void)
+{
+    char dir[256];
+    snprintf(dir, sizeof(dir), "%s/y_not_test_delete_XXXXXX", P_tmpdir);
+    char *created = mkdtemp(dir);
+    CHECK(created != NULL);
+    if (!created)
+        return;
+
+    char target_dir[sizeof(dir) + 16];
+    char target[sizeof(dir) + 32];
+    snprintf(target_dir, sizeof(target_dir), "%s/entries", dir);
+    snprintf(target, sizeof(target), "%s/item", target_dir);
+    CHECK(chmod(dir, 0711) == 0);
+    CHECK(mkdir(target_dir, 0700) == 0);
+    CHECK(chmod(target_dir, 01770) == 0);
+    FILE *file = fopen(target, "w");
+    CHECK(file != NULL);
+    if (!file)
+    {
+        chmod(target_dir, 0700);
+        rmdir(target_dir);
+        chmod(dir, 0700);
+        rmdir(dir);
+        return;
+    }
+    fclose(file);
+
+    uid_t other_uid = geteuid() == 2000 ? 2001 : 2000;
+    User other = {.uid = other_uid, .primary_gid = getegid(),
+                  .groups = NULL, .group_count = 0, .name = "y_not_other"};
+    AccessResult result = check_access(&other, target, ACCESS_DELETE);
+    CHECK(!result.allowed);
+    CHECK(result.reason == REASON_STICKY_BIT);
+    CHECK(result.blocked_path != NULL && strcmp(result.blocked_path, target) == 0);
+    access_result_free(&result);
+
+    CHECK(chmod(target_dir, 01750) == 0); /* group can search but cannot write */
+    result = check_access(&other, target, ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_GROUP_DENIED);
+    CHECK(!result.blocked_on_traversal);
+    access_result_free(&result);
+
+    CHECK(chmod(target_dir, 01700) == 0); /* no search for the other user */
+    result = check_access(&other, target, ACCESS_DELETE);
+    CHECK(!result.allowed && result.blocked_on_traversal);
+    access_result_free(&result);
+
+    CHECK(chmod(target_dir, 01770) == 0);
+    char missing[sizeof(target_dir) + 16];
+    snprintf(missing, sizeof(missing), "%s/missing", target_dir);
+    result = check_access(&other, missing, ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_NOT_FOUND);
+    access_result_free(&result);
+
+    User owner = {.uid = geteuid(), .primary_gid = getegid(),
+                  .groups = NULL, .group_count = 0, .name = "y_not_owner"};
+    result = check_access(&owner, target, ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    result = check_access(&owner, "/", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_DELETE_ROOT);
+    access_result_free(&result);
+    char dot_path[sizeof(target_dir) + 4];
+    snprintf(dot_path, sizeof(dot_path), "%s/.", target_dir);
+    result = check_access(&owner, dot_path, ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_DELETE_SPECIAL);
+    access_result_free(&result);
+
+    unlink(target);
+    chmod(target_dir, 0700);
+    rmdir(target_dir);
+    chmod(dir, 0700);
+    rmdir(dir);
+}
+
 static void check_directory_entry_creation(void)
 {
     /* Directory entry creation requires both write and search permissions.
@@ -165,6 +242,7 @@ int main(void)
     }
 
     check_directory_entry_creation();
+    check_sticky_directory_delete();
     check_noexec_mount_is_the_reported_blocker(me);
 
     /* access_result_free(NULL) must be silent */

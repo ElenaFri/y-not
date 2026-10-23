@@ -15,7 +15,7 @@ static void usage(FILE *out, const char *prog)
 {
     fprintf(out, "Usage: %s [--json] USER OPERATION PATH\n", prog);
     fprintf(out, "       %s --help | --version\n", prog);
-    fprintf(out, "  OPERATION: read|r  write|w  execute|x\n");
+    fprintf(out, "  OPERATION: read|r  write|w  execute|x  delete|d\n");
 }
 
 static void help(const char *prog)
@@ -37,6 +37,8 @@ static AccessOperation parse_operation(const char *s)
         return ACCESS_WRITE;
     if (strcmp(s, "execute") == 0 || strcmp(s, "x") == 0)
         return ACCESS_EXECUTE;
+    if (strcmp(s, "delete") == 0 || strcmp(s, "d") == 0)
+        return ACCESS_DELETE;
     fprintf(stderr, "Unknown operation: %s\n", s);
     exit(EXIT_FAILURE);
 }

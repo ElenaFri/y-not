@@ -51,6 +51,10 @@ expect_exit "operation alias: write"   0 "$BIN" "$USER_NAME" write   /tmp
 expect_exit "operation alias: w"       0 "$BIN" "$USER_NAME" w      /tmp
 expect_exit "operation alias: execute" 0 "$BIN" "$USER_NAME" execute /usr/bin/ls
 expect_exit "operation alias: x"       0 "$BIN" "$USER_NAME" x       /usr/bin/ls
+expect_exit "operation alias: delete"  1 "$BIN" "$USER_NAME" delete /etc/hosts
+expect_exit "operation alias: d"       1 "$BIN" "$USER_NAME" d      /etc/hosts
+expect_contains "JSON reports delete operation" "\"operation\": \"delete\"" \
+    "$BIN" --json "$USER_NAME" delete /etc/hosts
 
 # Exit code contract: 0 = allowed, 1 = denied (scripts rely on this)
 expect_exit "denied path exits 1" 1 "$BIN" "$USER_NAME" read /var/__y_not_no_such_path__

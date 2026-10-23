@@ -74,12 +74,21 @@ remediation is
 Can the user read the file, or read directory entries to list their names?
 .TP
 .B write\fR, \fBw
-Can the user write to the file, or create an entry in the directory? Creating an entry requires both write and traversal permission. Whether a particular entry can be removed or renamed also depends on that entry and the sticky bit; y-not cannot decide that without an entry name.
+Can the user write to the file, or create an entry in the directory? Creating an entry requires both write and traversal permission. Use the separate
+.B delete
+operation to check removal of a named entry.
 .TP
 .B execute\fR, \fBx
 For a regular file, checks whether the user has permission to attempt execution;
 y-not does not validate the executable format or check whether its interpreter
 or loader is available. For a directory, checks search/traversal permission.
+.TP
+.B delete\fR, \fBd
+Checks whether the named directory entry can be removed. Its parent directory
+must grant write and search permission. In a sticky directory, only the entry
+owner, directory owner or root can remove it. This does not check rename,
+removal of a non-empty directory, immutable attributes or process-specific
+security policy.
 .SH OPTIONS
 .TP
 .B \-\-json
@@ -118,8 +127,10 @@ object). Read-only and noexec mount options are
 included in the verdict; nosuid is informational. Mount options are read from
 y-not's own mount namespace, which may differ from the target process's
 namespace. Directory write checks model entry creation (write plus traversal),
-not removal or rename of a specific entry; those may also depend on the sticky
-bit and entry ownership.
+not rename or removal of a non-empty directory. The
+.B delete
+operation checks named-entry removal and sticky-bit ownership, but does not
+model immutable attributes or process-specific security policy.
 .PP
 .B y-not
 inspects each path component with the privileges of the user who runs it, not

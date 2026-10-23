@@ -60,6 +60,9 @@ static void inspect_component(PathComponent *c)
         return;
     }
 
+    c->link_st = lst;
+    c->link_st_known = true;
+
     if (S_ISLNK(lst.st_mode))
     {
         c->is_symlink = true;

@@ -108,6 +108,11 @@ int main(void)
         "file is not marked executable for this user");
 
     check_explanation(
+        REASON_STICKY_BIT, ACCESS_DELETE, (PermissionResult){0},
+        1234, false,
+        "the parent directory has the sticky bit; you own neither the entry nor the directory");
+
+    check_explanation(
         REASON_OWNER_DENIED, ACCESS_READ,
         (PermissionResult){.reason = REASON_OWNER_DENIED},
         1234, true,
@@ -182,6 +187,8 @@ int main(void)
         CHECK(strcmp(actual,
                      "not in group \"y_not_test_group\" (which would allow traverse)") == 0);
     }
+
+    CHECK(strcmp(access_operation_name(ACCESS_DELETE), "delete") == 0);
 
     /* The public formatter tolerates absent path metadata and small buffers. */
     {

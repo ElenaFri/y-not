@@ -10,6 +10,8 @@ typedef struct
 {
     char *path;
     struct stat st;
+    struct stat link_st; /* lstat(2) metadata; differs from st for a symlink */
+    bool link_st_known;
     acl_t acl; /* NULL when no extended ACL entries */
     bool is_symlink;
     char *symlink_target;  /* NULL unless is_symlink; owned */

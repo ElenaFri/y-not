@@ -11,6 +11,7 @@ typedef enum
     ACCESS_READ,
     ACCESS_WRITE,
     ACCESS_EXECUTE,
+    ACCESS_DELETE,
 } AccessOperation;
 
 /* Upper bound on the number of candidate groups reported for a missing-group
@@ -32,6 +33,9 @@ typedef enum
     REASON_SYMLINK_LOOP,   /* too many levels of symbolic links */
     REASON_MOUNT_READ_ONLY,
     REASON_MOUNT_NOEXEC,
+    REASON_STICKY_BIT,
+    REASON_DELETE_ROOT,
+    REASON_DELETE_SPECIAL,
 } AccessReason;
 
 typedef enum
