@@ -110,6 +110,20 @@ static void format_proof(const PermissionResult *perm, char *buf, size_t size)
         snprintf(buf, size, "%s: %s", src, entry);
 }
 
+/* The access word shown in the tree for component `i`: for a delete, the parent
+   of the target shows "delete entry" and the rest "enter"; otherwise the final
+   component shows the requested operation and the parents show "enter". */
+static const char *tree_checked_word(const AccessResult *result,
+                                     AccessOperation op, size_t i, size_t count,
+                                     bool is_last)
+{
+    if (op == ACCESS_DELETE)
+        return i == count - 2 ? "delete entry" : "enter";
+    if (is_last && !result->blocked_on_traversal)
+        return access_operation_name(op);
+    return "enter";
+}
+
 static void render_tree(const AccessResult *result, AccessOperation op)
 {
     const AccessPath *ap = result->access_path;
@@ -187,11 +201,8 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         const char *owner = uid_to_name(comp->st.st_uid, ubuf, sizeof(ubuf));
         const char *grp = gid_to_name(comp->st.st_gid, gbuf, sizeof(gbuf));
 
-        const char *checked = op == ACCESS_DELETE
-                                  ? (i == ap->count - 2 ? "delete entry" : "enter")
-                                  : (is_last && !result->blocked_on_traversal)
-                                        ? access_operation_name(op)
-                                        : "enter";
+        const char *checked =
+            tree_checked_word(result, op, i, ap->count, is_last);
         printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
                owner, grp, checked, is_block ? "BLOCKED" : "ok");
@@ -252,6 +263,89 @@ static void render_verification(const Verification *v, bool allowed)
     printf("  %-12s%s\n", label, line);
 }
 
+/* The "allowed for:" line listing which of the compared accounts are allowed.
+   A human label under the verdict; JSON carries the allowed_for array. */
+static void render_compared_line(const ComparedUsers *compared)
+{
+    if (!compared || !compared->requested)
+        return;
+    fputs("  allowed for: ", stdout);
+    if (compared->allowed_count == 0)
+    {
+        fputs("none\n", stdout);
+        return;
+    }
+    for (size_t i = 0; i < compared->allowed_count; i++)
+    {
+        if (i)
+            fputs(", ", stdout);
+        fputs(compared->allowed[i], stdout);
+    }
+    putchar('\n');
+}
+
+/* The "proof:" line: the bit-level justification for a denial, or the inode
+   attribute / sticky-bit facts when no permission bits decided it. */
+static void render_proof_line(const AccessResult *result)
+{
+    if (result->reason == REASON_IMMUTABLE)
+    {
+        printf("  %-12sthe immutable attribute is set on this entry\n",
+               "proof:");
+        return;
+    }
+    if (result->reason == REASON_APPEND_ONLY)
+    {
+        printf("  %-12sthe append-only attribute is set on this entry\n",
+               "proof:");
+        return;
+    }
+
+    const PathComponent *blocked = access_blocked_component(result);
+    if (blocked && blocked->checked_permission_known)
+    {
+        char proof[128];
+        format_proof(&blocked->checked_permission, proof, sizeof proof);
+        printf("  %-12s%s\n", "proof:", proof);
+        return;
+    }
+
+    if (result->reason == REASON_STICKY_BIT && result->access_path &&
+        result->access_path->count >= 2)
+    {
+        const PathComponent *entry =
+            &result->access_path->components[result->access_path->count - 1];
+        const PathComponent *parent =
+            &result->access_path->components[result->access_path->count - 2];
+        char entry_owner_buf[16];
+        char dir_owner_buf[16];
+        const char *entry_owner = uid_to_name(
+            entry->link_st.st_uid, entry_owner_buf, sizeof entry_owner_buf);
+        const char *dir_owner = uid_to_name(parent->st.st_uid, dir_owner_buf,
+                                            sizeof dir_owner_buf);
+        printf("  %-12ssticky bit set; entry owner %s, directory owner %s\n",
+               "proof:", entry_owner, dir_owner);
+    }
+}
+
+/* The denial detail block: blocked-at, cause, proof and the to-allow remedy. */
+static void render_denial_details(const AccessResult *result, const User *user,
+                                  AccessOperation op)
+{
+    if (result->blocked_path)
+        printf("\n  %-12s%s\n", "blocked at:", result->blocked_path);
+
+    char explanation[512];
+    format_access_explanation(result, op, explanation, sizeof explanation);
+    printf("  %-12s%s\n", "cause:", explanation);
+
+    render_proof_line(result);
+
+    char remedy[512];
+    if (format_remediation(result, op, user->name, remedy, sizeof remedy))
+        printf("  %-12s%s\n", "to allow:", remedy);
+}
+
 void render_result_text(const AccessResult *result, const User *user,
                         AccessOperation op, const ComparedUsers *compared,
                         const Verification *verification)
@@ -268,69 +362,13 @@ void render_result_text(const AccessResult *result, const User *user,
     printf("%s %s %s %s\n", user->name, result->allowed ? "can" : "cannot",
            access_operation_name(op), target);
 
-    /* The comparison line sits right under the verdict, at the same left
-       margin. "allowed for:" is a human label, not a stable field - the --json
-       output carries the machine-readable "allowed_for" array instead. */
-    if (compared && compared->requested)
-    {
-        fputs("  allowed for: ", stdout);
-        if (compared->allowed_count == 0)
-        {
-            fputs("none", stdout);
-        }
-        else
-        {
-            for (size_t i = 0; i < compared->allowed_count; i++)
-            {
-                if (i)
-                    fputs(", ", stdout);
-                fputs(compared->allowed[i], stdout);
-            }
-        }
-        putchar('\n');
-    }
+    /* The "allowed for:" line sits right under the verdict, at the same left
+       margin. It is a human label, not a stable field - the --json output
+       carries the machine-readable "allowed_for" array instead. */
+    render_compared_line(compared);
 
     if (!result->allowed)
-    {
-        if (result->blocked_path)
-            printf("\n  %-12s%s\n", "blocked at:", result->blocked_path);
-        char explanation[512];
-        format_access_explanation(result, op, explanation, sizeof(explanation));
-        printf("  %-12s%s\n", "cause:", explanation);
-        const PathComponent *blocked = access_blocked_component(result);
-        if (result->reason == REASON_IMMUTABLE)
-        {
-            printf("  %-12sthe immutable attribute is set on this entry\n", "proof:");
-        }
-        else if (result->reason == REASON_APPEND_ONLY)
-        {
-            printf("  %-12sthe append-only attribute is set on this entry\n", "proof:");
-        }
-        else if (blocked && blocked->checked_permission_known)
-        {
-            char proof[128];
-            format_proof(&blocked->checked_permission, proof, sizeof(proof));
-            printf("  %-12s%s\n", "proof:", proof);
-        }
-        else if (result->reason == REASON_STICKY_BIT && result->access_path &&
-                 result->access_path->count >= 2)
-        {
-            const PathComponent *entry =
-                &result->access_path->components[result->access_path->count - 1];
-            const PathComponent *parent =
-                &result->access_path->components[result->access_path->count - 2];
-            char entry_owner_buf[16], dir_owner_buf[16];
-            const char *entry_owner = uid_to_name(entry->link_st.st_uid, entry_owner_buf,
-                                                  sizeof(entry_owner_buf));
-            const char *dir_owner = uid_to_name(parent->st.st_uid, dir_owner_buf,
-                                                sizeof(dir_owner_buf));
-            printf("  %-12ssticky bit set; entry owner %s, directory owner %s\n",
-                   "proof:", entry_owner, dir_owner);
-        }
-        char remedy[512];
-        if (format_remediation(result, op, user->name, remedy, sizeof(remedy)))
-            printf("  %-12s%s\n", "to allow:", remedy);
-    }
+        render_denial_details(result, user, op);
 
     /* Kernel cross-check: y-not's verdict is the modeled one, but when it could
        ask the kernel too (via access(2) under the target identity), it reports

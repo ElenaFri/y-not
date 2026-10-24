@@ -116,6 +116,58 @@ static void permission_text(unsigned bits, char out[4])
     out[3] = '\0';
 }
 
+/* A component whose stat(2) failed: emit it as unresolved with its reason. */
+static void print_unresolved_component(const PathComponent *comp,
+                                       bool checked_full_op, bool is_target,
+                                       AccessOperation op)
+{
+    printf("      \"resolved\": false,\n");
+    if (op == ACCESS_DELETE && is_target && comp->link_st_known)
+    {
+        char entry_owner_buf[16];
+        const char *entry_owner = uid_to_name(
+            comp->link_st.st_uid, entry_owner_buf, sizeof entry_owner_buf);
+        printf("      \"entry_owner\": ");
+        json_print_string(entry_owner);
+        printf(",\n");
+    }
+    printf("      \"checked\": \"%s\",\n",
+           checked_full_op ? access_operation_name(op) : "enter");
+    printf("      \"allowed\": false\n");
+    printf("    }");
+}
+
+/* The additive "decision" object: which permission rule decided this component,
+   the rwx bits it produced, and any candidate groups. */
+static void print_decision(const PermissionResult *perm)
+{
+    char entry[4], effective[4], mask[4];
+    permission_text(perm->entry_permissions, entry);
+    permission_text(perm->effective_permissions, effective);
+    permission_text(perm->mask_permissions, mask);
+    printf(",\n      \"decision\": {\"source\": \"%s\", \"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": %s, \"mask_permissions\": \"%s\", \"missing_group_gid\": ",
+           permission_source_name(perm->source), entry, effective,
+           perm->mask_applied ? "true" : "false", mask);
+    if (perm->missing_group_known)
+        printf("%u", (unsigned)perm->missing_group_gid);
+    else
+        fputs("null", stdout);
+    fputs(", \"candidate_groups\": [", stdout);
+    for (unsigned g = 0; g < perm->candidate_group_count; g++)
+    {
+        if (g)
+            putchar(',');
+        gid_t cg = perm->candidate_group_gids[g];
+        char cgbuf[16];
+        const char *cgname = gid_to_name(cg, cgbuf, sizeof cgbuf);
+        printf("{\"gid\": %u, \"name\": ", (unsigned)cg);
+        json_print_string(cgname);
+        putchar('}');
+    }
+    putchar(']');
+    putchar('}');
+}
+
 static void print_trace_component(const PathComponent *comp, bool checked_full_op,
                                   bool is_blocked, bool is_target, AccessOperation op,
                                   bool *first)
@@ -135,19 +187,7 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
                      || comp->denial_reason == REASON_SYMLINK_LOOP);
     if (stat_failed)
     {
-        printf("      \"resolved\": false,\n");
-        if (op == ACCESS_DELETE && is_target && comp->link_st_known)
-        {
-            char entry_owner_buf[16];
-            const char *entry_owner = uid_to_name(comp->link_st.st_uid, entry_owner_buf,
-                                                  sizeof(entry_owner_buf));
-            printf("      \"entry_owner\": ");
-            json_print_string(entry_owner);
-            printf(",\n");
-        }
-        printf("      \"checked\": \"%s\",\n", checked_full_op ? access_operation_name(op) : "enter");
-        printf("      \"allowed\": false\n");
-        printf("    }");
+        print_unresolved_component(comp, checked_full_op, is_target, op);
         return;
     }
 
@@ -186,33 +226,7 @@ static void print_trace_component(const PathComponent *comp, bool checked_full_o
     printf("      \"checked\": \"%s\",\n", checked_full_op ? access_operation_name(op) : "enter");
     printf("      \"allowed\": %s", is_blocked ? "false" : "true");
     if (comp->checked_permission_known)
-    {
-        char entry[4], effective[4], mask[4];
-        permission_text(comp->checked_permission.entry_permissions, entry);
-        permission_text(comp->checked_permission.effective_permissions, effective);
-        permission_text(comp->checked_permission.mask_permissions, mask);
-        printf(",\n      \"decision\": {\"source\": \"%s\", \"entry_permissions\": \"%s\", \"effective_permissions\": \"%s\", \"mask_applied\": %s, \"mask_permissions\": \"%s\", \"missing_group_gid\": ",
-               permission_source_name(comp->checked_permission.source), entry, effective,
-               comp->checked_permission.mask_applied ? "true" : "false", mask);
-        if (comp->checked_permission.missing_group_known)
-            printf("%u", (unsigned)comp->checked_permission.missing_group_gid);
-        else
-            fputs("null", stdout);
-        fputs(", \"candidate_groups\": [", stdout);
-        for (unsigned g = 0; g < comp->checked_permission.candidate_group_count; g++)
-        {
-            if (g)
-                putchar(',');
-            gid_t cg = comp->checked_permission.candidate_group_gids[g];
-            char cgbuf[16];
-            const char *cgname = gid_to_name(cg, cgbuf, sizeof(cgbuf));
-            printf("{\"gid\": %u, \"name\": ", (unsigned)cg);
-            json_print_string(cgname);
-            putchar('}');
-        }
-        putchar(']');
-        putchar('}');
-    }
+        print_decision(&comp->checked_permission);
     putchar('\n');
     printf("    }");
 }
@@ -303,50 +317,25 @@ static void print_header(const char *username, AccessOperation op, const char *p
     printf(",\n");
 }
 
-void render_result_json(const AccessResult *result, const char *username,
-                        AccessOperation op, const char *requested_path,
-                        const ComparedUsers *compared,
-                        const Verification *verification)
+/* Additive "allowed_for" array: only emitted when --compare was given, so
+   consumers of the base schema never see a new required key. */
+static void print_allowed_for(const ComparedUsers *compared)
 {
-    const char *target = requested_path;
-    if (result->access_path && result->access_path->count > 0)
-        target = result->access_path->components[result->access_path->count - 1].path;
-
-    char explanation[512];
-    format_access_explanation(result, op, explanation, sizeof(explanation));
-
-    print_header(username, op, target);
-    printf("  \"allowed\": %s,\n", result->allowed ? "true" : "false");
-    printf("  \"reason\": \"%s\",\n", reason_code(result->reason));
-    printf("  \"explanation\": ");
-    json_print_string(explanation);
-    char remedy[512];
-    printf(",\n  \"remediation\": ");
-    if (format_remediation(result, op, username, remedy, sizeof(remedy)))
-        json_print_string(remedy);
-    else
-        fputs("null", stdout);
-    printf(",\n  \"blocked_at\": ");
-    json_print_string_or_null(result->blocked_path);
-    printf(",\n");
-    /* Additive "allowed_for" array: only emitted when --compare was given, so
-       consumers of the base schema never see a new required key. */
-    if (compared && compared->requested)
+    if (!compared || !compared->requested)
+        return;
+    fputs("  \"allowed_for\": [", stdout);
+    for (size_t i = 0; i < compared->allowed_count; i++)
     {
-        fputs("  \"allowed_for\": [", stdout);
-        for (size_t i = 0; i < compared->allowed_count; i++)
-        {
-            if (i)
-                putchar(',');
-            json_print_string(compared->allowed[i]);
-        }
-        fputs("],\n", stdout);
+        if (i)
+            putchar(',');
+        json_print_string(compared->allowed[i]);
     }
-    if (verification)
-        print_verification(verification);
-    print_mac(result->allowed);
-    printf("  \"trace\": [\n");
+    fputs("],\n", stdout);
+}
 
+static void print_trace(const AccessResult *result, AccessOperation op)
+{
+    printf("  \"trace\": [\n");
     if (result->access_path)
     {
         size_t count = result->access_path->count;
@@ -375,8 +364,41 @@ void render_result_json(const AccessResult *result, const char *username,
         if (!first)
             putchar('\n');
     }
-
     printf("  ]\n");
+}
+
+void render_result_json(const AccessResult *result, const char *username,
+                        AccessOperation op, const char *requested_path,
+                        const ComparedUsers *compared,
+                        const Verification *verification)
+{
+    const char *target = requested_path;
+    if (result->access_path && result->access_path->count > 0)
+        target = result->access_path->components[result->access_path->count - 1].path;
+
+    char explanation[512];
+    format_access_explanation(result, op, explanation, sizeof(explanation));
+
+    print_header(username, op, target);
+    printf("  \"allowed\": %s,\n", result->allowed ? "true" : "false");
+    printf("  \"reason\": \"%s\",\n", reason_code(result->reason));
+    printf("  \"explanation\": ");
+    json_print_string(explanation);
+    char remedy[512];
+    printf(",\n  \"remediation\": ");
+    if (format_remediation(result, op, username, remedy, sizeof(remedy)))
+        json_print_string(remedy);
+    else
+        fputs("null", stdout);
+    printf(",\n  \"blocked_at\": ");
+    json_print_string_or_null(result->blocked_path);
+    printf(",\n");
+    print_allowed_for(compared);
+    if (verification)
+        print_verification(verification);
+    print_mac(result->allowed);
+    print_trace(result, op);
+
     printf("}\n");
 }
 

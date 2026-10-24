@@ -199,7 +199,18 @@ static void check_allowed_case(void)
     free_components(comps, 2);
 }
 
-static void check_all_permission_combinations_and_mount_flags(void)
+/* When this combo is denied (bits == 0) y-not reports a read denial; otherwise
+   the first rwx bit present names the operation. */
+static AccessOperation op_for_bits(bool allowed, unsigned bits)
+{
+    if (!allowed || (bits & 4u))
+        return ACCESS_READ;
+    if (bits & 2u)
+        return ACCESS_WRITE;
+    return ACCESS_EXECUTE;
+}
+
+static void check_all_permission_combinations(void)
 {
     static const char *const permission_text[] = {
         "---", "--x", "-w-", "-wx", "r--", "r-x", "rw-", "rwx"};
@@ -222,10 +233,7 @@ static void check_all_permission_combinations_and_mount_flags(void)
                                .reason = allowed ? REASON_NONE : REASON_ACL_DENIED,
                                .blocked_path = allowed ? NULL : comps[1].path,
                                .access_path = &ap};
-        AccessOperation op = !allowed ? ACCESS_READ
-                             : (bits & 4u) ? ACCESS_READ
-                             : (bits & 2u) ? ACCESS_WRITE
-                                           : ACCESS_EXECUTE;
+        AccessOperation op = op_for_bits(allowed, bits);
         char *json = render_and_capture(&result, "alice", op, "/target");
         CHECK(json != NULL);
         if (json)
@@ -240,7 +248,10 @@ static void check_all_permission_combinations_and_mount_flags(void)
         }
         free_components(comps, 2);
     }
+}
 
+static void check_mount_flag_combinations(void)
+{
     for (unsigned bits = 0; bits < 8; bits++)
     {
         PathComponent comps[2] = {0};
@@ -378,8 +389,12 @@ static void check_intermediate_unresolved_component(void)
         CHECK(strstr(json, "\"resolved\": false") != NULL);
         CHECK(strstr(json, "\"checked\": \"enter\",\n      \"allowed\": false") != NULL);
         int trace_entries = 0;
-        for (const char *p = json; (p = strstr(p, "\"checked\":")) != NULL; p++)
+        const char *p = json;
+        while ((p = strstr(p, "\"checked\":")) != NULL)
+        {
             trace_entries++;
+            p++;
+        }
         CHECK(trace_entries == 2);
         free(json);
     }
@@ -423,8 +438,12 @@ static void check_denied_case_and_truncation(void)
            the top-level "path" field legitimately names the full original
            target regardless of where the trace was truncated. */
         int trace_entries = 0;
-        for (const char *p = json; (p = strstr(p, "\"checked\":")) != NULL; p++)
+        const char *p = json;
+        while ((p = strstr(p, "\"checked\":")) != NULL)
+        {
             trace_entries++;
+            p++;
+        }
         CHECK(trace_entries == 2);
         free(json);
     }
@@ -938,7 +957,8 @@ static void check_verification_object(void)
 int main(void)
 {
     check_allowed_case();
-    check_all_permission_combinations_and_mount_flags();
+    check_all_permission_combinations();
+    check_mount_flag_combinations();
     check_file_type_and_acl_metadata();
     check_missing_group_gid_in_json();
     check_intermediate_unresolved_component();

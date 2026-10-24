@@ -53,7 +53,7 @@ char **compare_allowed_accounts(const char *list, const char *primary,
     }
 
     size_t count = 0;
-    char *cursor = work;
+    const char *cursor = work;
     while (cursor)
     {
         char *delimiter = strchr(cursor, ',');

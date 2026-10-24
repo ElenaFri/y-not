@@ -277,6 +277,17 @@ static void check_acl_decision_is_explained(void)
     free(comps[1].path);
 }
 
+/* The lowest rwx bit missing from this permset, in r,w,x order: the operation
+   the entry denies. */
+static AccessOperation first_missing_op(unsigned bits)
+{
+    if (!(bits & 4u))
+        return ACCESS_READ;
+    if (!(bits & 2u))
+        return ACCESS_WRITE;
+    return ACCESS_EXECUTE;
+}
+
 static void check_permission_bit_patterns_are_rendered(void)
 {
     static const char *const permission_text[] = {
@@ -301,9 +312,7 @@ static void check_permission_bit_patterns_are_rendered(void)
         AccessResult result = {.allowed = false, .reason = REASON_ACL_DENIED,
                                .blocked_path = comps[1].path, .access_path = &ap};
         User user = {.uid = 1000, .primary_gid = 1000, .name = "test"};
-        AccessOperation denied_op = !(bits & 4u) ? ACCESS_READ
-                                   : !(bits & 2u) ? ACCESS_WRITE
-                                                  : ACCESS_EXECUTE;
+        AccessOperation denied_op = first_missing_op(bits);
         char *text = render_and_capture(&result, &user, denied_op);
         CHECK(text != NULL);
         if (text)

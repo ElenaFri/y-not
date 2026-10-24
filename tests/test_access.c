@@ -62,7 +62,7 @@ static void check_sticky_directory_delete(void)
 {
     char dir[256];
     snprintf(dir, sizeof(dir), "%s/y_not_test_delete_XXXXXX", P_tmpdir);
-    char *created = mkdtemp(dir);
+    const char *created = mkdtemp(dir);
     CHECK(created != NULL);
     if (!created)
         return;

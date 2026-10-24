@@ -22,7 +22,11 @@ static unsigned mask_bits(AclMask mask)
 
 static unsigned operation_bit(AccessOperation op)
 {
-    return op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u;
+    if (op == ACCESS_READ)
+        return 4u;
+    if (op == ACCESS_WRITE)
+        return 2u;
+    return 1u;
 }
 
 static bool add_candidate_group(gid_t *list, unsigned *count, gid_t gid)
@@ -34,6 +38,19 @@ static bool add_candidate_group(gid_t *list, unsigned *count, gid_t gid)
         return false;
     list[(*count)++] = gid;
     return true;
+}
+
+/* A named ACL group entry (ACL_GROUP) the user is not a member of: record it
+   as a group whose membership would grant the operation. */
+static void consider_named_group(acl_entry_t e, const User *user,
+                                 gid_t *list, unsigned *count)
+{
+    gid_t *q = acl_get_qualifier(e);
+    if (!q)
+        return;
+    if (!user_in_group(user, *q))
+        add_candidate_group(list, count, *q);
+    acl_free(q);
 }
 
 /* Collect every non-member group whose effective rights (after the ACL mask)
@@ -62,15 +79,7 @@ static unsigned collect_missing_acl_groups(const User *user, const struct stat *
         if (tag == ACL_GROUP_OBJ && !user_in_group(user, st->st_gid))
             add_candidate_group(list, &count, st->st_gid);
         else if (tag == ACL_GROUP)
-        {
-            gid_t *q = acl_get_qualifier(e);
-            if (q)
-            {
-                if (!user_in_group(user, *q))
-                    add_candidate_group(list, &count, *q);
-                acl_free(q);
-            }
-        }
+            consider_named_group(e, user, list, &count);
     }
     return count;
 }
@@ -151,23 +160,23 @@ PermissionResult evaluate_acl_permissions(const User *user, const struct stat *s
     if (user->uid == st->st_uid)
     {
         if (!has_owner) owner = (st->st_mode >> 6) & 7;
-        bool allowed = (owner & (op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u)) != 0;
+        bool allowed = (owner & operation_bit(op)) != 0;
         return result(allowed, allowed ? REASON_NONE : REASON_OWNER_DENIED,
                       PERMISSION_SOURCE_ACL_OWNER, owner, mask, false);
     }
     if (has_user)
     {
-        bool allowed = (named_user & mask_bits(mask) & (op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u)) != 0;
+        bool allowed = (named_user & mask_bits(mask) & operation_bit(op)) != 0;
         return result(allowed, allowed ? REASON_NONE : REASON_ACL_DENIED,
                       PERMISSION_SOURCE_ACL_USER, named_user, mask, true);
     }
     if (has_group)
     {
-        bool allowed = (groups & mask_bits(mask) & (op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u)) != 0;
+        bool allowed = (groups & mask_bits(mask) & operation_bit(op)) != 0;
         return result(allowed, allowed ? REASON_NONE : REASON_ACL_DENIED,
                       PERMISSION_SOURCE_ACL_GROUP, groups, mask, true);
     }
-    bool allowed = has_other && (other & (op == ACCESS_READ ? 4u : op == ACCESS_WRITE ? 2u : 1u));
+    bool allowed = has_other && (other & operation_bit(op));
     if (allowed)
         return result(true, REASON_NONE, PERMISSION_SOURCE_ACL_OTHER, other, mask, false);
 

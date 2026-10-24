@@ -37,7 +37,65 @@ static char need_perm_char(AccessOperation op, bool traversal)
 {
     if (traversal)
         return 'x'; /* a parent (or a final directory being written) needs search */
-    return op == ACCESS_READ ? 'r' : (op == ACCESS_WRITE || op == ACCESS_DELETE) ? 'w' : 'x';
+    if (op == ACCESS_READ)
+        return 'r';
+    if (op == ACCESS_WRITE || op == ACCESS_DELETE)
+        return 'w';
+    return 'x';
+}
+
+static unsigned perm_char_bit(char need)
+{
+    if (need == 'r')
+        return 4u;
+    if (need == 'w')
+        return 2u;
+    return 1u;
+}
+
+/* The requesting user's group is missing the permission, or the group that
+   would grant it is not one of theirs: name the group and the usermod fix. */
+static void remediation_group_missing(const PathComponent *blocked,
+                                      const char *name, char *buffer,
+                                      size_t buffer_size)
+{
+    gid_t gid = blocked ? blocked->st.st_gid : 0;
+    if (blocked && blocked->checked_permission_known &&
+        blocked->checked_permission.missing_group_known)
+        gid = blocked->checked_permission.missing_group_gid;
+    char gbuf[32];
+    const char *gname = gid_to_name(gid, gbuf, sizeof(gbuf));
+    snprintf(buffer, buffer_size,
+             "add %s to a group that grants it: sudo usermod -aG %s %s, "
+             "then log in again",
+             name, gname, name);
+}
+
+/* An ACL entry denies the access: either the mask trims an otherwise-granting
+   entry (widen the mask) or the entry itself lacks the bit (extend it). */
+static void remediation_acl_denied(const PathComponent *blocked, unsigned need_bit,
+                                   const char *name, const char *path,
+                                   char *buffer, size_t buffer_size)
+{
+    const PermissionResult *perm = blocked ? &blocked->checked_permission : NULL;
+    bool mask_blocks = perm && blocked->checked_permission_known &&
+                       perm->mask_applied &&
+                       (perm->entry_permissions & need_bit) &&
+                       !(perm->effective_permissions & need_bit);
+    if (mask_blocks)
+    {
+        char mask[4];
+        perms_letters(perm->mask_permissions | need_bit, mask);
+        snprintf(buffer, buffer_size,
+                 "widen the ACL mask: sudo setfacl -m m::%s %s", mask, path);
+        return;
+    }
+    unsigned entry = perm ? perm->entry_permissions : 0u;
+    char grant[4];
+    perms_letters(entry | need_bit, grant);
+    snprintf(buffer, buffer_size,
+             "extend this user's ACL entry: sudo setfacl -m u:%s:%s %s",
+             name, grant, path);
 }
 
 static bool blocked_is_last_component(const AccessResult *result)
@@ -67,7 +125,7 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
     bool traversal = (op != ACCESS_DELETE && !blocked_is_last_component(result)) ||
                      result->blocked_on_traversal;
     char need = need_perm_char(op, traversal);
-    unsigned need_bit = need == 'r' ? 4u : need == 'w' ? 2u : 1u;
+    unsigned need_bit = perm_char_bit(need);
 
     const char *object = (blocked && S_ISDIR(blocked->st.st_mode))
                              ? "directory"
@@ -90,50 +148,16 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
                  object, need, path);
         return true;
     case REASON_GROUP_MISSING:
-    {
-        gid_t gid = blocked ? blocked->st.st_gid : 0;
-        if (blocked && blocked->checked_permission_known &&
-            blocked->checked_permission.missing_group_known)
-            gid = blocked->checked_permission.missing_group_gid;
-        char gbuf[32];
-        const char *gname = gid_to_name(gid, gbuf, sizeof(gbuf));
-        snprintf(buffer, buffer_size,
-                 "add %s to a group that grants it: sudo usermod -aG %s %s, "
-                 "then log in again",
-                 name, gname, name);
+        remediation_group_missing(blocked, name, buffer, buffer_size);
         return true;
-    }
     case REASON_OTHER_DENIED:
         snprintf(buffer, buffer_size,
                  "grant only this user via ACL: sudo setfacl -m u:%s:%c %s",
                  name, need, path);
         return true;
     case REASON_ACL_DENIED:
-    {
-        const PermissionResult *perm =
-            blocked ? &blocked->checked_permission : NULL;
-        bool mask_blocks = perm && blocked->checked_permission_known &&
-                           perm->mask_applied &&
-                           (perm->entry_permissions & need_bit) &&
-                           !(perm->effective_permissions & need_bit);
-        if (mask_blocks)
-        {
-            char mask[4];
-            perms_letters(perm->mask_permissions | need_bit, mask);
-            snprintf(buffer, buffer_size,
-                     "widen the ACL mask: sudo setfacl -m m::%s %s", mask, path);
-        }
-        else
-        {
-            unsigned entry = perm ? perm->entry_permissions : 0u;
-            char grant[4];
-            perms_letters(entry | need_bit, grant);
-            snprintf(buffer, buffer_size,
-                     "extend this user's ACL entry: sudo setfacl -m u:%s:%s %s",
-                     name, grant, path);
-        }
+        remediation_acl_denied(blocked, need_bit, name, path, buffer, buffer_size);
         return true;
-    }
     case REASON_MOUNT_READ_ONLY:
         snprintf(buffer, buffer_size,
                  "this is a read-only mount, not a permission; "

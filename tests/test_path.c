@@ -53,6 +53,29 @@ static bool path_is_denied_for_nobody(const char *path)
     return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
+/* Enter-then-remove the cwd in a child, then confirm a relative path no longer
+   resolves from the parent. Kept out of main() so its fork/wait handling does
+   not deepen the surrounding nesting. */
+static void check_resolve_after_cwd_removed(const char *removed_cwd)
+{
+    pid_t remover = fork();
+    CHECK(remover != -1);
+    if (remover == 0)
+        _exit(rmdir(removed_cwd) == 0 ? 0 : 1);
+    if (remover > 0)
+    {
+        int status = 0;
+        pid_t waited = waitpid(remover, &status, 0);
+        CHECK(waited == remover);
+        if (waited == remover)
+            CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+        CHECK(path_resolve("relative") == NULL);
+    }
+    CHECK(chdir("/") == 0);
+    if (remover == -1)
+        rmdir(removed_cwd);
+}
+
 int main(void)
 {
     path_free(NULL); /* must be silent */
@@ -552,24 +575,7 @@ int main(void)
         bool entered_cwd = chdir(created_cwd) == 0;
         CHECK(entered_cwd);
         if (entered_cwd)
-        {
-            pid_t remover = fork();
-            CHECK(remover != -1);
-            if (remover == 0)
-                _exit(rmdir(removed_cwd) == 0 ? 0 : 1);
-            if (remover > 0)
-            {
-                int status = 0;
-                pid_t waited = waitpid(remover, &status, 0);
-                CHECK(waited == remover);
-                if (waited == remover)
-                    CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
-                CHECK(path_resolve("relative") == NULL);
-            }
-            CHECK(chdir("/") == 0);
-            if (remover == -1)
-                rmdir(removed_cwd);
-        }
+            check_resolve_after_cwd_removed(removed_cwd);
         else
             rmdir(removed_cwd);
     }

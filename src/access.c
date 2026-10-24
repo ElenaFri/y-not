@@ -123,6 +123,30 @@ static AccessResult check_delete(const User *user, AccessPath *ap)
     return (AccessResult){.allowed = true, .reason = REASON_NONE, .access_path = ap};
 }
 
+/* On the final component, a read-only or noexec mount, or an immutable /
+   append-only attribute, overrides an otherwise-granting permission. Returns
+   the possibly-overridden result (unchanged when nothing restricts it). */
+static PermissionResult apply_final_restrictions(const PathComponent *comp,
+                                                 AccessOperation operation,
+                                                 PermissionResult check)
+{
+    AccessReason mount_reason = mount_restriction_reason(
+        comp->mount_flags_known, comp->mount_read_only,
+        comp->mount_noexec, &comp->st, operation);
+    if (mount_reason != REASON_NONE)
+        return (PermissionResult){.allowed = false, .reason = mount_reason,
+                                  .source = PERMISSION_SOURCE_MOUNT};
+
+    AccessReason attr_reason = attribute_restriction_reason(
+        comp->attr_flags_known, comp->attr_immutable,
+        comp->attr_append_only, operation);
+    if (attr_reason != REASON_NONE)
+        return (PermissionResult){.allowed = false, .reason = attr_reason,
+                                  .source = PERMISSION_SOURCE_FS_ATTR};
+
+    return check;
+}
+
 AccessResult check_access(const User *user,
                           const char *path,
                           AccessOperation operation)
@@ -181,23 +205,7 @@ AccessResult check_access(const User *user,
             check = pr[operation];
 
         if (check.allowed && is_last)
-        {
-            AccessReason mount_reason = mount_restriction_reason(
-                comp->mount_flags_known, comp->mount_read_only,
-                comp->mount_noexec, &comp->st, operation);
-            if (mount_reason != REASON_NONE)
-                check = (PermissionResult){.allowed = false, .reason = mount_reason,
-                                           .source = PERMISSION_SOURCE_MOUNT};
-            else
-            {
-                AccessReason attr_reason = attribute_restriction_reason(
-                    comp->attr_flags_known, comp->attr_immutable,
-                    comp->attr_append_only, operation);
-                if (attr_reason != REASON_NONE)
-                    check = (PermissionResult){.allowed = false, .reason = attr_reason,
-                                               .source = PERMISSION_SOURCE_FS_ATTR};
-            }
-        }
+            check = apply_final_restrictions(comp, operation, check);
 
         comp->checked_permission = check;
         comp->checked_permission_known = true;
