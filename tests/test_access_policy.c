@@ -55,6 +55,18 @@ AccessReason mount_restriction_reason(bool flags_known, bool read_only,
     return REASON_NONE;
 }
 
+AccessReason attribute_restriction_reason(bool flags_known, bool immutable,
+                                          bool append_only, AccessOperation op)
+{
+    if (!flags_known)
+        return REASON_NONE;
+    if (immutable && (op == ACCESS_WRITE || op == ACCESS_DELETE))
+        return REASON_IMMUTABLE;
+    if (append_only && op == ACCESS_DELETE)
+        return REASON_APPEND_ONLY;
+    return REASON_NONE;
+}
+
 static void setup_fixture(bool target_is_directory)
 {
     memset(fixture_components, 0, sizeof(fixture_components));
@@ -311,6 +323,85 @@ static void check_delete_logic(void)
     access_result_free(&result);
 }
 
+/* Immutable and append-only inode attributes override DAC on the target and,
+   for deletion, on the parent directory. They sit after the mount check in both
+   check_access and check_delete; these cases drive each attribute branch. */
+static void check_attribute_restrictions(void)
+{
+    User user = {.name = "fixture", .uid = 1};
+
+    /* Immutable file blocks write even when DAC would allow it. */
+    setup_fixture(false);
+    fixture_components[1].attr_flags_known = true;
+    fixture_components[1].attr_immutable = true;
+    AccessResult result = check_access(&user, "/target", ACCESS_WRITE);
+    CHECK(!result.allowed && result.reason == REASON_IMMUTABLE);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/target") == 0);
+    CHECK(result.access_path->components[1].checked_permission.source ==
+          PERMISSION_SOURCE_FS_ATTR);
+    access_result_free(&result);
+
+    /* Immutable does not touch reads: the file stays readable. */
+    setup_fixture(false);
+    fixture_components[1].attr_flags_known = true;
+    fixture_components[1].attr_immutable = true;
+    result = check_access(&user, "/target", ACCESS_READ);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* Append-only still permits writes (they must append), so write is allowed. */
+    setup_fixture(false);
+    fixture_components[1].attr_flags_known = true;
+    fixture_components[1].attr_append_only = true;
+    result = check_access(&user, "/target", ACCESS_WRITE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* An immutable parent directory refuses removal of any entry. */
+    setup_fixture(false);
+    fixture_components[0].attr_flags_known = true;
+    fixture_components[0].attr_immutable = true;
+    fixture_components[1].link_st_known = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_IMMUTABLE);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/") == 0);
+    CHECK(result.access_path->components[0].checked_permission.source ==
+          PERMISSION_SOURCE_FS_ATTR);
+    access_result_free(&result);
+
+    /* An append-only parent directory refuses removal too. */
+    setup_fixture(false);
+    fixture_components[0].attr_flags_known = true;
+    fixture_components[0].attr_append_only = true;
+    fixture_components[1].link_st_known = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_APPEND_ONLY);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/") == 0);
+    access_result_free(&result);
+
+    /* An immutable target cannot be unlinked, even with a writable parent. */
+    setup_fixture(false);
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].attr_flags_known = true;
+    fixture_components[1].attr_immutable = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_IMMUTABLE);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/target") == 0);
+    CHECK(result.access_path->components[1].checked_permission.source ==
+          PERMISSION_SOURCE_FS_ATTR);
+    access_result_free(&result);
+
+    /* An append-only target cannot be unlinked either. */
+    setup_fixture(false);
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].attr_flags_known = true;
+    fixture_components[1].attr_append_only = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_APPEND_ONLY);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/target") == 0);
+    access_result_free(&result);
+}
+
 int main(void)
 {
     check_path_resolution_failure();
@@ -320,5 +411,6 @@ int main(void)
     check_path_inspection_error_is_reported_before_dac();
     check_strdup_failure_never_returns_allowed();
     check_delete_logic();
+    check_attribute_restrictions();
     return TEST_SUMMARY();
 }

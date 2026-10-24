@@ -88,6 +88,17 @@ int main(void)
     CHECK(mount_restriction_reason(true, true, true, &st_644, ACCESS_READ) == REASON_NONE);
     CHECK(mount_restriction_reason(true, false, false, NULL, ACCESS_READ) == REASON_NONE);
 
+    /* Inode attributes: immutable blocks write/delete, append-only blocks only
+       delete, and neither touches read or execute. Unknown flags report NONE. */
+    CHECK(attribute_restriction_reason(false, true, true, ACCESS_WRITE) == REASON_NONE);
+    CHECK(attribute_restriction_reason(true, true, false, ACCESS_WRITE) == REASON_IMMUTABLE);
+    CHECK(attribute_restriction_reason(true, true, false, ACCESS_DELETE) == REASON_IMMUTABLE);
+    CHECK(attribute_restriction_reason(true, true, false, ACCESS_READ) == REASON_NONE);
+    CHECK(attribute_restriction_reason(true, true, false, ACCESS_EXECUTE) == REASON_NONE);
+    CHECK(attribute_restriction_reason(true, false, true, ACCESS_DELETE) == REASON_APPEND_ONLY);
+    CHECK(attribute_restriction_reason(true, false, true, ACCESS_WRITE) == REASON_NONE);
+    CHECK(attribute_restriction_reason(true, false, false, ACCESS_DELETE) == REASON_NONE);
+
     /* alice is owner - 0644: r+w ok, x denied */
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_READ, NULL).allowed);
     CHECK(evaluate_permissions(&alice, &st_644, ACCESS_WRITE, NULL).allowed);

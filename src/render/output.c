@@ -92,8 +92,9 @@ static void format_proof(const PermissionResult *perm, char *buf, size_t size)
     static const char *sources[] = {"none", "Unix owner bits", "Unix group bits",
         "Unix other bits", "ACL owner entry", "named ACL user entry",
         "matching ACL group entries", "ACL other entry", "root DAC override",
-        "CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "mount restriction"};
-    const char *src = perm->source <= PERMISSION_SOURCE_MOUNT
+        "CAP_DAC_OVERRIDE", "CAP_DAC_READ_SEARCH", "mount restriction",
+        "filesystem attribute"};
+    const char *src = perm->source <= PERMISSION_SOURCE_FS_ATTR
                           ? sources[perm->source] : "unknown";
     unsigned bits = perm->entry_permissions;
     char entry[4] = {bits & 4u ? 'r' : '-', bits & 2u ? 'w' : '-', bits & 1u ? 'x' : '-', '\0'};
@@ -207,6 +208,13 @@ static void render_tree(const AccessResult *result, AccessOperation op)
             if (comp->mount_nosuid) fputs(" nosuid", stdout);
             putchar(')');
         }
+        if (comp->attr_flags_known && (comp->attr_immutable || comp->attr_append_only))
+        {
+            fputs("  (attr:", stdout);
+            if (comp->attr_immutable) fputs(" immutable", stdout);
+            if (comp->attr_append_only) fputs(" append-only", stdout);
+            putchar(')');
+        }
         putchar('\n');
     }
 }
@@ -235,7 +243,15 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
         format_access_explanation(result, op, explanation, sizeof(explanation));
         printf("  %-12s%s\n", "cause:", explanation);
         const PathComponent *blocked = access_blocked_component(result);
-        if (blocked && blocked->checked_permission_known)
+        if (result->reason == REASON_IMMUTABLE)
+        {
+            printf("  %-12sthe immutable attribute is set on this entry\n", "proof:");
+        }
+        else if (result->reason == REASON_APPEND_ONLY)
+        {
+            printf("  %-12sthe append-only attribute is set on this entry\n", "proof:");
+        }
+        else if (blocked && blocked->checked_permission_known)
         {
             char proof[128];
             format_proof(&blocked->checked_permission, proof, sizeof(proof));

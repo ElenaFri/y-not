@@ -30,6 +30,8 @@ static const char *reason_code(AccessReason r)
     case REASON_STICKY_BIT:      return "sticky_bit";
     case REASON_DELETE_ROOT:    return "delete_root";
     case REASON_DELETE_SPECIAL: return "delete_special";
+    case REASON_IMMUTABLE:      return "immutable";
+    case REASON_APPEND_ONLY:    return "append_only";
     default:                     return "unknown";
     }
 }
@@ -102,8 +104,8 @@ static const char *permission_source_name(PermissionSource source)
 {
     static const char *names[] = {"none", "unix_owner", "unix_group", "unix_other",
         "acl_owner", "acl_user", "acl_group", "acl_other", "dac_override",
-        "cap_dac_override", "cap_dac_read_search", "mount"};
-    return source <= PERMISSION_SOURCE_MOUNT ? names[source] : "unknown";
+        "cap_dac_override", "cap_dac_read_search", "mount", "fs_attr"};
+    return source <= PERMISSION_SOURCE_FS_ATTR ? names[source] : "unknown";
 }
 
 static void permission_text(unsigned bits, char out[4])

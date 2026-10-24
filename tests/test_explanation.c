@@ -122,6 +122,38 @@ int main(void)
         1234, false,
         "the special . and .. directory entries cannot be deleted");
 
+    /* Immutable: the wording names the object (file vs directory) and makes
+       clear the block holds even for the owner and root. */
+    check_explanation(
+        REASON_IMMUTABLE, ACCESS_WRITE,
+        (PermissionResult){.reason = REASON_IMMUTABLE, .source = PERMISSION_SOURCE_FS_ATTR},
+        1234, false,
+        "this file has the immutable attribute set; it cannot be changed "
+        "or removed, not even by its owner or root");
+
+    check_explanation(
+        REASON_IMMUTABLE, ACCESS_DELETE,
+        (PermissionResult){.reason = REASON_IMMUTABLE, .source = PERMISSION_SOURCE_FS_ATTR},
+        1234, true,
+        "this directory has the immutable attribute set; it cannot be changed "
+        "or removed, not even by its owner or root");
+
+    /* Append-only: separate phrasings for a file (appendable) and a directory
+       (entries may be added but not removed). */
+    check_explanation(
+        REASON_APPEND_ONLY, ACCESS_DELETE,
+        (PermissionResult){.reason = REASON_APPEND_ONLY, .source = PERMISSION_SOURCE_FS_ATTR},
+        1234, false,
+        "this file has the append-only attribute set; it may be "
+        "appended to but not removed, not even by its owner or root");
+
+    check_explanation(
+        REASON_APPEND_ONLY, ACCESS_DELETE,
+        (PermissionResult){.reason = REASON_APPEND_ONLY, .source = PERMISSION_SOURCE_FS_ATTR},
+        1234, true,
+        "this directory has the append-only attribute set; entries "
+        "may be added but not removed, not even by its owner or root");
+
     check_explanation(
         REASON_OWNER_DENIED, ACCESS_READ,
         (PermissionResult){.reason = REASON_OWNER_DENIED},

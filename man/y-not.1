@@ -26,7 +26,8 @@ and
 .BR getfacl (1),
 .B y-not
 evaluates owner/group/other permissions, supplementary groups, POSIX ACLs,
-Linux mount restrictions, symlinks and special files, and reports the result in
+Linux mount restrictions, immutable and append-only inode attributes, symlinks
+and special files, and reports the result in
 a single, human-readable explanation. Capability grants from pam_cap's
 capability.conf are used as an approximation; this is not a simulation of an
 actual target process's effective capabilities.
@@ -86,9 +87,13 @@ or loader is available. For a directory, checks search/traversal permission.
 .B delete\fR, \fBd
 Checks whether the named directory entry can be removed. Its parent directory
 must grant write and search permission. In a sticky directory, only the entry
-owner, directory owner or root can remove it. This does not check rename,
-removal of a non-empty directory, immutable attributes or process-specific
-security policy.
+owner, directory owner or root can remove it. An immutable
+.RB ( chattr
++i) or append-only
+.RB ( chattr
++a) attribute on the entry or its parent also blocks removal, overriding
+ownership. This does not check rename, removal of a non-empty directory or
+process-specific security policy.
 .SH OPTIONS
 .TP
 .B \-\-json
@@ -129,8 +134,17 @@ y-not's own mount namespace, which may differ from the target process's
 namespace. Directory write checks model entry creation (write plus traversal),
 not rename or removal of a non-empty directory. The
 .B delete
-operation checks named-entry removal and sticky-bit ownership, but does not
-model immutable attributes or process-specific security policy.
+operation checks named-entry removal and sticky-bit ownership. Immutable and
+append-only inode attributes are read and override the verdict for
+.B write
+and
+.BR delete ;
+because append-only still permits appending, a
+.B write
+to an append-only file is reported as allowed and only
+.B delete
+is blocked. Attributes are known only when y-not can open the inode to read
+them. y-not does not model process-specific security policy.
 .PP
 .B y-not
 inspects each path component with the privileges of the user who runs it, not

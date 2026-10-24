@@ -157,6 +157,18 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
                  "the . and .. entries cannot be removed; this is a kernel rule, "
                  "not a permission");
         return true;
+    case REASON_IMMUTABLE:
+        snprintf(buffer, buffer_size,
+                 "clear the immutable attribute, a deliberate protection, "
+                 "to allow this: sudo chattr -i %s",
+                 path);
+        return true;
+    case REASON_APPEND_ONLY:
+        snprintf(buffer, buffer_size,
+                 "clear the append-only attribute, a deliberate protection, "
+                 "to allow removal: sudo chattr -a %s",
+                 path);
+        return true;
     default:
         /* NOT_TRAVERSABLE, NOT_FOUND, BROKEN_SYMLINK, SYMLINK_LOOP: no
            permission change would make this access succeed. For

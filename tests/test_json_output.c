@@ -530,6 +530,8 @@ static const struct
     {REASON_STICKY_BIT, "sticky_bit", false},
     {REASON_DELETE_ROOT, "delete_root", false},
     {REASON_DELETE_SPECIAL, "delete_special", false},
+    {REASON_IMMUTABLE, "immutable", false},
+    {REASON_APPEND_ONLY, "append_only", false},
 };
 
 static void check_every_reason_message(void)
@@ -739,6 +741,57 @@ static void check_mac_block_in_json(void)
     free_components(comps, 2);
 }
 
+/* Inode-attribute denials surface the fs_attr source in the decision block and
+   a chattr remediation, for both immutable (write) and append-only (delete). */
+static void check_attribute_json(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_IMMUTABLE,
+        .source = PERMISSION_SOURCE_FS_ATTR};
+    comps[1].checked_permission_known = true;
+    comps[1].denial_reason = REASON_IMMUTABLE;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_IMMUTABLE,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    char *json = render_and_capture(&result, "alice", ACCESS_WRITE, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"reason\": \"immutable\"") != NULL);
+        CHECK(strstr(json, "\"source\": \"fs_attr\"") != NULL);
+        CHECK(strstr(json, "\"remediation\": \"clear the immutable attribute") != NULL);
+        free(json);
+    }
+    free_components(comps, 2);
+
+    PathComponent comps2[2] = {0};
+    make_root_and_target(comps2, "/target", S_IFREG | 0644);
+    comps2[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_APPEND_ONLY,
+        .source = PERMISSION_SOURCE_FS_ATTR};
+    comps2[1].checked_permission_known = true;
+    comps2[1].denial_reason = REASON_APPEND_ONLY;
+    comps2[1].link_st_known = true;
+    comps2[1].link_st.st_uid = 1000;
+
+    AccessPath ap2 = {.components = comps2, .count = 2};
+    AccessResult result2 = {.allowed = false, .reason = REASON_APPEND_ONLY,
+                            .blocked_path = comps2[1].path, .access_path = &ap2};
+    char *json2 = render_and_capture(&result2, "alice", ACCESS_DELETE, "/target");
+    CHECK(json2 != NULL);
+    if (json2)
+    {
+        CHECK(strstr(json2, "\"reason\": \"append_only\"") != NULL);
+        CHECK(strstr(json2, "\"source\": \"fs_attr\"") != NULL);
+        CHECK(strstr(json2, "\"remediation\": \"clear the append-only attribute") != NULL);
+        free(json2);
+    }
+    free_components(comps2, 2);
+}
+
 int main(void)
 {
     check_allowed_case();
@@ -757,5 +810,6 @@ int main(void)
     check_unresolvable_uid_gid();
     check_mac_block_in_json();
     check_delete_json();
+    check_attribute_json();
     return TEST_SUMMARY();
 }

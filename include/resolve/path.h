@@ -21,6 +21,9 @@ typedef struct
     bool mount_read_only;
     bool mount_noexec;
     bool mount_nosuid;
+    bool attr_flags_known;
+    bool attr_immutable;   /* inode has FS_IMMUTABLE_FL (chattr +i) */
+    bool attr_append_only; /* inode has FS_APPEND_FL (chattr +a) */
     bool can_read;
     bool can_write;
     bool can_execute;

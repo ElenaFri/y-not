@@ -131,6 +131,17 @@ int main(void)
           "the . and .. entries cannot be removed; this is a kernel rule, "
           "not a permission");
 
+    /* Inode attributes: the fix is chattr, flagged as a deliberate protection
+       rather than a routine permission bump. */
+    check(REASON_IMMUTABLE, ACCESS_WRITE, (PermissionResult){0},
+          S_IFREG | 0644, false,
+          "clear the immutable attribute, a deliberate protection, "
+          "to allow this: sudo chattr -i /target");
+    check(REASON_APPEND_ONLY, ACCESS_DELETE, (PermissionResult){0},
+          S_IFREG | 0644, false,
+          "clear the append-only attribute, a deliberate protection, "
+          "to allow removal: sudo chattr -a /target");
+
     /* Blocked on traversal of a parent directory: the needed bit is search. */
     {
         PathComponent components[3] = {0};

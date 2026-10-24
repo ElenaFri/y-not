@@ -3,13 +3,29 @@
 
 #include <acl/libacl.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/capability.h>
+#include <sys/ioctl.h>
 #include <sys/statvfs.h>
 #include <unistd.h>
 #include "context/selinux_info.h"
+
+/* FS_IOC_GETFLAGS and the inode attribute bits live in <linux/fs.h>, which is
+   notorious for clashing with glibc's <sys/mount.h>. We need only these three,
+   so define them defensively rather than pull in the whole kernel header. The
+   values are stable kernel ABI. */
+#ifndef FS_IOC_GETFLAGS
+#define FS_IOC_GETFLAGS _IOR('f', 1, long)
+#endif
+#ifndef FS_IMMUTABLE_FL
+#define FS_IMMUTABLE_FL 0x00000010
+#endif
+#ifndef FS_APPEND_FL
+#define FS_APPEND_FL 0x00000020
+#endif
 
 /* PATH_MAX may be absent on systems without a fixed path limit */
 #ifndef PATH_MAX
@@ -47,6 +63,28 @@ static char *read_file_caps(const char *path)
         cap_free(text);
     cap_free(cap);
     return owned;
+}
+
+/* Read the immutable/append-only inode attributes (chattr). Only regular files
+   and directories can carry them, and FS_IOC_GETFLAGS needs an fd, so we open
+   read-only without following into special files. A failure (no read access, a
+   filesystem that does not support the ioctl) leaves the attributes simply
+   unknown: y-not never claims an attribute it could not observe. */
+static void read_inode_flags(PathComponent *c)
+{
+    if (!S_ISREG(c->st.st_mode) && !S_ISDIR(c->st.st_mode))
+        return;
+    int fd = open(c->path, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+    if (fd == -1)
+        return;
+    long flags = 0;
+    if (ioctl(fd, FS_IOC_GETFLAGS, &flags) == 0)
+    {
+        c->attr_flags_known = true;
+        c->attr_immutable = (flags & FS_IMMUTABLE_FL) != 0;
+        c->attr_append_only = (flags & FS_APPEND_FL) != 0;
+    }
+    close(fd);
 }
 
 static void inspect_component(PathComponent *c)
@@ -98,6 +136,8 @@ static void inspect_component(PathComponent *c)
 
     if (S_ISREG(c->st.st_mode))
         c->file_caps = read_file_caps(c->path);
+
+    read_inode_flags(c);
 
     c->selinux_context = selinux_file_context(c->path);
 }

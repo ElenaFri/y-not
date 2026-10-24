@@ -669,6 +669,63 @@ static void check_sticky_proof_is_rendered(void)
     free(comps[2].path);
 }
 
+static void check_attribute_annotations_and_proof(void)
+{
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_execute = true;
+    comps[1].path = strdup("/target");
+    comps[1].st.st_mode = S_IFREG | 0644;
+    comps[1].attr_flags_known = true;
+    comps[1].attr_immutable = true;
+    comps[1].denial_reason = REASON_IMMUTABLE;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_IMMUTABLE,
+        .source = PERMISSION_SOURCE_FS_ATTR};
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_IMMUTABLE,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "elena"};
+
+    /* Immutable: the proof names the attribute (no chattr command there), the
+       tree annotates the entry, and the fix is the chattr remediation. */
+    char *text = render_and_capture(&result, &user, ACCESS_WRITE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "the immutable attribute is set on this entry") != NULL);
+        CHECK(strstr(text, "(attr: immutable)") != NULL);
+        CHECK(strstr(text, "sudo chattr -i /target") != NULL);
+        free(text);
+    }
+
+    /* Append-only: same shape, append-only wording and chattr -a. */
+    comps[1].attr_immutable = false;
+    comps[1].attr_append_only = true;
+    comps[1].denial_reason = REASON_APPEND_ONLY;
+    comps[1].link_st_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_APPEND_ONLY,
+        .source = PERMISSION_SOURCE_FS_ATTR};
+    result.reason = REASON_APPEND_ONLY;
+
+    text = render_and_capture(&result, &user, ACCESS_DELETE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "the append-only attribute is set on this entry") != NULL);
+        CHECK(strstr(text, "(attr: append-only)") != NULL);
+        CHECK(strstr(text, "sudo chattr -a /target") != NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+}
+
 int main(void)
 {
     check_deep_tree_does_not_crash();
@@ -686,5 +743,6 @@ int main(void)
     check_mac_warning_on_allowed_verdict();
     check_uninspectable_component_is_honest();
     check_sticky_proof_is_rendered();
+    check_attribute_annotations_and_proof();
     return TEST_SUMMARY();
 }

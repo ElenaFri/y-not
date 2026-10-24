@@ -213,6 +213,22 @@ void format_access_explanation(const AccessResult *result, AccessOperation op,
     case REASON_DELETE_SPECIAL:
         snprintf(buffer, buffer_size, "the special . and .. directory entries cannot be deleted");
         break;
+    case REASON_IMMUTABLE:
+        snprintf(buffer, buffer_size,
+                 "this %s has the immutable attribute set; it cannot be changed "
+                 "or removed, not even by its owner or root",
+                 object);
+        break;
+    case REASON_APPEND_ONLY:
+        if (blocked && S_ISDIR(blocked->st.st_mode))
+            snprintf(buffer, buffer_size,
+                     "this directory has the append-only attribute set; entries "
+                     "may be added but not removed, not even by its owner or root");
+        else
+            snprintf(buffer, buffer_size,
+                     "this file has the append-only attribute set; it may be "
+                     "appended to but not removed, not even by its owner or root");
+        break;
     default:
         snprintf(buffer, buffer_size, "unknown");
     }

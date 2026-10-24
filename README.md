@@ -133,6 +133,44 @@ bob cannot delete /srv/uploads/report.csv
 
 Deleting a name is a property of the *parent* directory, not the file: `delete` checks write and search on the parent, then applies the sticky-bit ownership rule. The trace confirms `bob` may create entries in `uploads` (`delete entry  ok`) yet still cannot remove this one. Removal is governed by ownership of the entry (or the directory, or root) rather than a file permission bit, so the `to allow:` line names the least-privilege change that applies: transferring ownership of the entry to `bob`. In JSON the reason code is `sticky_bit`, `remediation` carries that same suggestion, and the target component gains an additive `entry_owner` field.
 
+## When even root is refused: immutable and append-only attributes
+
+Standard permissions say the owner may write this file, and `getfacl` shows no ACL that would change that:
+
+```text
+$ ls -l /etc/app/license.key
+-rw-r--r-- 1 root root 48 ... /etc/app/license.key
+```
+
+Yet the write fails - and so does `rm`, even for root:
+
+```text
+$ sudo sh -c 'echo revoked >> /etc/app/license.key'
+sh: /etc/app/license.key: Operation not permitted
+```
+
+Nothing in `ls -l` or `getfacl` explains this: the file carries the immutable inode attribute (`chattr +i`), set by an administrator or a hardening tool. y-not reads the attribute and names it as the blocker:
+
+```text
+$ y-not root write /etc/app/license.key
+
+root cannot write /etc/app/license.key
+
+  blocked at: /etc/app/license.key
+  cause:      this file has the immutable attribute set; it cannot be changed or removed, not even by its owner or root
+  proof:      the immutable attribute is set on this entry
+  to allow:   clear the immutable attribute, a deliberate protection, to allow this: sudo chattr -i /etc/app/license.key
+
+  /                      drwxr-xr-x  root:root   enter    ok
+  └── etc                drwxr-xr-x  root:root   enter    ok
+      └── app            drwxr-xr-x  root:root   enter    ok
+          └── license.key  -rw-r--r--  root:root   write    BLOCKED  (attr: immutable)
+```
+
+The trace annotates the blocking component with `(attr: immutable)` - the detail `ls -l` cannot show. The immutable attribute overrides the owner and root alike, so y-not reports the denial even when the mode bits and ACLs would allow the write. The same rule governs deletion: an immutable file cannot be unlinked, and an immutable *directory* refuses to have entries added or removed.
+
+A related attribute, append-only (`chattr +a`), blocks removal while still allowing writes that append. y-not is deliberate about the difference: a `write` to an append-only file is still reported as *allowed* (the kernel would accept the append), and only `delete` is blocked, with the entry annotated `(attr: append-only)`. In JSON the reason codes are `immutable` and `append_only`, the blocked component's `decision.source` is `fs_attr`, and `remediation` carries the matching `chattr` command.
+
 ## Install
 
 Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:
@@ -156,7 +194,7 @@ y-not alice read /srv/project/report.pdf
 y-not --json alice write /srv/project
 ```
 
-On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. `delete` checks whether the named directory entry may be removed: the parent needs write and search permission, and a sticky directory additionally restricts removal to the entry owner, directory owner or root. This models unlinking a name; it does not model renaming, removing a non-empty directory, `.`/`..` entries, immutable attributes, or process-specific security policy.
+On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. `delete` checks whether the named directory entry may be removed: the parent needs write and search permission, and a sticky directory additionally restricts removal to the entry owner, directory owner or root. `write` and `delete` also honor the immutable (`chattr +i`) and append-only (`chattr +a`) inode attributes, which override ownership. This models unlinking a name; it does not model renaming, removing a non-empty directory, `.`/`..` entries, or process-specific security policy.
 
 The text output's `cause:`, `proof:` and `to allow:` lines correspond to the JSON `reason`, `decision` and `remediation` fields: the text uses plain-language labels for a human reader, while the JSON keys are a stable machine contract and do not change.
 
@@ -168,6 +206,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - POSIX ACL owner, named-user, group and other entries, including the effective ACL mask.
 - Root's DAC override behavior and grants listed in `/etc/security/capability.conf` for pam_cap.
 - Read-only (`ro`) and `noexec` mount restrictions visible in y-not's mount namespace.
+- Immutable (`chattr +i`) and append-only (`chattr +a`) inode attributes, which override the owner and root alike: immutable blocks write and delete, append-only blocks delete.
 - The path trace, symbolic links, missing components, broken links and symlink loops.
 - A suggested least-privilege remediation for the blocking component (`chmod`, group membership, an ACL grant or mask widening), or a note that a read-only/noexec mount, not a permission, is the blocker. Fixes that change a file you do not own are prefixed with `sudo`, since only the owner or root can apply them.
 
@@ -178,7 +217,8 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - **SELinux and AppArmor do not change the verdict, but an active module is flagged.** y-not evaluates DAC/ACL only; it does not simulate SELinux policy, and AppArmor confinement is process/profile-specific and cannot be inferred from a user, operation and path alone. When the verdict is *allowed* and SELinux is enforcing or AppArmor has loaded profiles, y-not prints a prominent warning that the kernel may still deny a confined process (and sets `may_override_verdict` in the JSON `mac` object), so an "allowed" result is never mistaken for "unrestricted".
 - **Capabilities are approximated.** pam_cap grants are read from `/etc/security/capability.conf`; file capabilities are displayed, but y-not does not simulate the effective capability set of an actual target process.
 - **Mount flags are namespace-specific.** `ro` and `noexec` affect the modeled result; `nosuid` is reported as context only. A service or container in another mount namespace may see different flags.
-- **Directory operations are specific.** `write` on a directory models creating an entry; `delete` models removing the named entry and includes sticky-bit ownership checks. Rename, removing a non-empty directory, immutable attributes, ACL inheritance, and races between inspection and use are outside the model.
+- **Directory operations are specific.** `write` on a directory models creating an entry; `delete` models removing the named entry and includes sticky-bit ownership checks. Rename, removing a non-empty directory, ACL inheritance, and races between inspection and use are outside the model.
+- **Inode attributes are read, with two honest caveats.** y-not reports the immutable and append-only attributes and lets them override the DAC/ACL verdict. Because append-only still permits appending, a `write` to an append-only file is reported as *allowed* - the kernel would accept the append - and only `delete` is blocked. Attributes are known only when y-not can open the inode to read them; if the open fails, they are omitted rather than guessed.
 - **y-not inspects the path with its own privileges.** It reads each component's metadata as the user who runs `y-not`, not as the target user. If a parent directory denies the running process search, y-not cannot inspect what lies beneath it; it then reports that the path could not be inspected and the verdict is undetermined, rather than guessing. Run `y-not` as root (or as a user who can traverse the whole path) for a complete diagnosis.
 - **Kernel and security-module behavior remains authoritative.** The actual result can also depend on the process credentials, namespaces, filesystem implementation and active security policy.
 

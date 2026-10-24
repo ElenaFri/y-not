@@ -103,3 +103,18 @@ AccessReason mount_restriction_reason(bool flags_known, bool read_only,
         return REASON_MOUNT_NOEXEC;
     return REASON_NONE;
 }
+
+AccessReason attribute_restriction_reason(bool flags_known, bool immutable,
+                                          bool append_only, AccessOperation op)
+{
+    if (!flags_known)
+        return REASON_NONE;
+    /* Immutable forbids any change to the inode or its contents, including
+       removal; append-only still permits appends, so it only blocks removal.
+       Both override the owner and root. Reads and executes stay unaffected. */
+    if (immutable && (op == ACCESS_WRITE || op == ACCESS_DELETE))
+        return REASON_IMMUTABLE;
+    if (append_only && op == ACCESS_DELETE)
+        return REASON_APPEND_ONLY;
+    return REASON_NONE;
+}

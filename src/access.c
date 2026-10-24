@@ -92,6 +92,30 @@ static AccessResult check_delete(const User *user, AccessPath *ap)
     if (!target->link_st_known)
         return deny_at(ap, target, REASON_NOT_FOUND, false);
 
+    /* Inode attributes override write+ownership: an immutable or append-only
+       parent directory refuses entry removal, and an immutable or append-only
+       target cannot be unlinked, even by its owner or root. */
+    AccessReason parent_attr = attribute_restriction_reason(
+        parent->attr_flags_known, parent->attr_immutable,
+        parent->attr_append_only, ACCESS_DELETE);
+    if (parent_attr != REASON_NONE)
+    {
+        parent->checked_permission = (PermissionResult){
+            .allowed = false, .reason = parent_attr, .source = PERMISSION_SOURCE_FS_ATTR};
+        parent->checked_permission_known = true;
+        return deny_at(ap, parent, parent_attr, false);
+    }
+    AccessReason target_attr = attribute_restriction_reason(
+        target->attr_flags_known, target->attr_immutable,
+        target->attr_append_only, ACCESS_DELETE);
+    if (target_attr != REASON_NONE)
+    {
+        target->checked_permission = (PermissionResult){
+            .allowed = false, .reason = target_attr, .source = PERMISSION_SOURCE_FS_ATTR};
+        target->checked_permission_known = true;
+        return deny_at(ap, target, target_attr, false);
+    }
+
     if ((parent->st.st_mode & S_ISVTX) && user->uid != 0 &&
         user->uid != parent->st.st_uid && user->uid != target->link_st.st_uid)
         return deny_at(ap, target, REASON_STICKY_BIT, false);
@@ -164,6 +188,15 @@ AccessResult check_access(const User *user,
             if (mount_reason != REASON_NONE)
                 check = (PermissionResult){.allowed = false, .reason = mount_reason,
                                            .source = PERMISSION_SOURCE_MOUNT};
+            else
+            {
+                AccessReason attr_reason = attribute_restriction_reason(
+                    comp->attr_flags_known, comp->attr_immutable,
+                    comp->attr_append_only, operation);
+                if (attr_reason != REASON_NONE)
+                    check = (PermissionResult){.allowed = false, .reason = attr_reason,
+                                               .source = PERMISSION_SOURCE_FS_ATTR};
+            }
         }
 
         comp->checked_permission = check;

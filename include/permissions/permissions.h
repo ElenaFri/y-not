@@ -36,6 +36,8 @@ typedef enum
     REASON_STICKY_BIT,
     REASON_DELETE_ROOT,
     REASON_DELETE_SPECIAL,
+    REASON_IMMUTABLE,   /* inode carries the immutable attribute (chattr +i) */
+    REASON_APPEND_ONLY, /* inode carries the append-only attribute (chattr +a) */
 } AccessReason;
 
 typedef enum
@@ -52,6 +54,7 @@ typedef enum
     PERMISSION_SOURCE_CAP_DAC_OVERRIDE,
     PERMISSION_SOURCE_CAP_DAC_READ_SEARCH,
     PERMISSION_SOURCE_MOUNT,
+    PERMISSION_SOURCE_FS_ATTR,
 } PermissionSource;
 
 typedef struct
@@ -81,3 +84,8 @@ PermissionResult evaluate_permissions(const User *user,
 AccessReason mount_restriction_reason(bool flags_known, bool read_only,
                                       bool noexec, const struct stat *st,
                                       AccessOperation op);
+
+/* Apply inode attribute restrictions (immutable, append-only) after DAC. These
+   override Unix bits, ACLs, the owner, and root alike. */
+AccessReason attribute_restriction_reason(bool flags_known, bool immutable,
+                                          bool append_only, AccessOperation op);
