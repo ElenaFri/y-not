@@ -210,6 +210,13 @@ $(BUILDDIR)/test_compare: $(TESTDIR)/test_compare.c \
 	$(CC) $(CFLAGS_DEBUG) -Wl,--wrap=calloc -Wl,--wrap=strdup \
 	    -o $@ $^ $(LDLIBS)
 
+# kernel_probe.c forks and drops to the target identity to ask the kernel
+# itself; it only needs the user resolver for the test's current-user lookup.
+$(BUILDDIR)/test_kernel_probe: $(TESTDIR)/test_kernel_probe.c \
+    $(SRCDIR)/verify/kernel_probe.c $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 
