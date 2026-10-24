@@ -18,50 +18,57 @@ char **compare_allowed_accounts(const char *list, const char *primary,
             cap++;
 
     char **allowed = calloc(cap, sizeof(char *));
-    char **seen = calloc(cap, sizeof(char *));
-    if (!allowed || !seen)
+    if (!allowed)
     {
-        free(allowed);
-        free(seen);
         free(work);
         return NULL;
     }
 
     size_t count = 0;
-    size_t seen_count = 0;
-    char *saveptr = NULL;
-    for (char *tok = strtok_r(work, ",", &saveptr); tok;
-         tok = strtok_r(NULL, ",", &saveptr))
+    char *tok = work;
+    while (tok)
     {
-        if (*tok == '\0' || strcmp(tok, primary) == 0)
-            continue;
+        char *delimiter = strchr(tok, ',');
+        if (delimiter)
+            *delimiter = '\0';
 
-        bool already_seen = false;
-        for (size_t i = 0; i < seen_count; i++)
-            if (strcmp(seen[i], tok) == 0)
+        bool duplicate = false;
+        size_t token_offset = (size_t)(tok - work);
+        size_t token_length = strlen(tok);
+        for (const char *prior = list; prior < list + token_offset;)
+        {
+            const char *prior_end = strchr(prior, ',');
+            if (!prior_end || prior_end > list + token_offset)
+                prior_end = list + token_offset;
+            size_t prior_length = (size_t)(prior_end - prior);
+            if (prior_length == token_length &&
+                memcmp(prior, tok, prior_length) == 0)
             {
-                already_seen = true;
+                duplicate = true;
                 break;
             }
-        if (already_seen)
-            continue;
-        seen[seen_count++] = tok; /* points into `work`, valid until it is freed */
-
-        User *u = user_lookup(tok);
-        if (!u)
-            continue;
-        AccessResult r = check_access(u, path, operation);
-        if (r.allowed)
-        {
-            char *name = strdup(u->name);
-            if (name)
-                allowed[count++] = name;
+            prior = prior_end + 1;
         }
-        access_result_free(&r);
-        user_free(u);
-    }
 
-    free(seen);
+        if (*tok != '\0' && strcmp(tok, primary) != 0 && !duplicate)
+        {
+            User *u = user_lookup(tok);
+            if (u)
+            {
+                AccessResult r = check_access(u, path, operation);
+                if (r.allowed)
+                {
+                    char *name = strdup(u->name);
+                    if (name)
+                        allowed[count++] = name;
+                }
+                access_result_free(&r);
+                user_free(u);
+            }
+        }
+
+        tok = delimiter ? delimiter + 1 : NULL;
+    }
     free(work);
     *out_count = count;
     return allowed;

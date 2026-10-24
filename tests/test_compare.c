@@ -9,9 +9,9 @@
 #include <unistd.h>
 
 /* Deterministic allocation-failure injection, mirroring test_resolve_failures:
-   compare_allowed_accounts()'s very first allocation is strdup(list), and its
-   first two calloc()s (the result and the dedup arrays) run before any
-   user_lookup(), so failing call N of a given allocator is reproducible. */
+   compare_allowed_accounts()'s first allocation is strdup(list), followed by
+   one calloc() for the result array before any user_lookup(), so failing call
+   N of a given allocator is reproducible. */
 extern void *__real_calloc(size_t count, size_t size);
 extern char *__real_strdup(const char *string);
 
@@ -174,14 +174,6 @@ static void check_allocation_failures(void)
     /* the result array (first calloc) fails. */
     count = 99;
     fail_allocator_call(ALLOCATOR_CALLOC, 1);
-    names = compare_allowed_accounts("root", "x", "/usr/bin/ls",
-                                     ACCESS_READ, &count);
-    CHECK(names == NULL);
-    CHECK(count == 0);
-
-    /* the dedup array (second calloc) fails. */
-    count = 99;
-    fail_allocator_call(ALLOCATOR_CALLOC, 2);
     names = compare_allowed_accounts("root", "x", "/usr/bin/ls",
                                      ACCESS_READ, &count);
     CHECK(names == NULL);
