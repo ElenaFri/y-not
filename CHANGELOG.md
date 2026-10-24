@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.7.0 — Compare access across named accounts
+
+See which of the accounts you name can perform the same operation on the same path.
+
+- Add `--compare USER,USER,...` to report which explicitly listed accounts are allowed, without changing the primary user's verdict or exit status
+- Add the `allowed for:` text line and an optional additive `allowed_for` array in JSON; keep the existing JSON schema version unchanged
+- Document that comparisons are limited to the named accounts and share y-not's DAC/ACL and process-context limitations
+- Harden account comparison bounds and use reentrant group-name lookup in explanations and remediation
+
 ## v1.6.0 — Explain who can delete a file
 
 Answer a question `ls -l` cannot: why a user who can write and traverse a directory still cannot delete a file inside it.
