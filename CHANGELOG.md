@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.6.0 — Explain who can delete a file
+
+Answer a question `ls -l` cannot: why a user who can write and traverse a directory still cannot delete a file inside it.
+
+- Add a `delete` (`d`) operation that evaluates removal of a directory entry: traverse and write on the parent directory, plus the sticky-bit rule
+- Report `sticky_bit` when the parent directory is sticky and the user owns neither the entry nor the directory, with a proof naming both owners and a `to allow:` suggestion to take ownership of the entry — the classic `/tmp`-style case where write permission is not enough
+- Reject deleting the filesystem root and the `.`/`..` entries with their own reasons, stating the refusal is a kernel rule rather than a permission
+- Expose the deletion verdict in JSON (`sticky_bit`, `delete_root`, `delete_special` reasons; additive `entry_owner` on the target component) and document the operation and its scope in the README and man page
+
 ## v1.5.1 — Make the suggested fix runnable
 
 Show `sudo` on a fix that needs it, so the suggestion actually works.
