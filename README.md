@@ -159,7 +159,7 @@ root cannot write /etc/app/license.key
   blocked at: /etc/app/license.key
   cause:      this file has the immutable attribute set; it cannot be changed or removed, not even by its owner or root
   proof:      the immutable attribute is set on this entry
-  to allow:   clear the immutable attribute, a deliberate protection, to allow this: sudo chattr -i /etc/app/license.key
+  to allow:   clear the immutable attribute, a deliberate protection: sudo chattr -i /etc/app/license.key
 
   /                      drwxr-xr-x  root:root   enter    ok
   └── etc                drwxr-xr-x  root:root   enter    ok

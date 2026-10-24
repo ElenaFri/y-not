@@ -135,8 +135,8 @@ int main(void)
        rather than a routine permission bump. */
     check(REASON_IMMUTABLE, ACCESS_WRITE, (PermissionResult){0},
           S_IFREG | 0644, false,
-          "clear the immutable attribute, a deliberate protection, "
-          "to allow this: sudo chattr -i /target");
+          "clear the immutable attribute, a deliberate protection: "
+          "sudo chattr -i /target");
     check(REASON_APPEND_ONLY, ACCESS_DELETE, (PermissionResult){0},
           S_IFREG | 0644, false,
           "clear the append-only attribute, a deliberate protection, "

@@ -159,8 +159,8 @@ bool format_remediation(const AccessResult *result, AccessOperation op,
         return true;
     case REASON_IMMUTABLE:
         snprintf(buffer, buffer_size,
-                 "clear the immutable attribute, a deliberate protection, "
-                 "to allow this: sudo chattr -i %s",
+                 "clear the immutable attribute, a deliberate protection: "
+                 "sudo chattr -i %s",
                  path);
         return true;
     case REASON_APPEND_ONLY:
