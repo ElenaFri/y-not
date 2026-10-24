@@ -217,6 +217,14 @@ $(BUILDDIR)/test_kernel_probe: $(TESTDIR)/test_kernel_probe.c \
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
 
+# verification.c classifies the model's verdict against the kernel probe; it
+# links the probe it drives and the user resolver the test's lookups need.
+$(BUILDDIR)/test_verification: $(TESTDIR)/test_verification.c \
+    $(SRCDIR)/verify/verification.c $(SRCDIR)/verify/kernel_probe.c \
+    $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -o $@ $^ $(LDLIBS)
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 
