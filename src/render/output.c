@@ -124,6 +124,34 @@ static const char *tree_checked_word(const AccessResult *result,
     return "enter";
 }
 
+/* The trailing "(caps: …) (selinux: …) (mount: …) (attr: …)" annotations for a
+   tree component. Each is printed only when the fact is known and non-default,
+   so a plain file shows none. Kept out of render_tree to hold its complexity
+   down; the exact spacing and wording is asserted by test_output.c. */
+static void render_component_annotations(const PathComponent *comp)
+{
+    if (comp->file_caps)
+        printf("  (caps: %s)", comp->file_caps);
+    if (comp->selinux_context)
+        printf("  (selinux: %s)", comp->selinux_context);
+    if (comp->mount_flags_known &&
+        (comp->mount_read_only || comp->mount_noexec || comp->mount_nosuid))
+    {
+        fputs("  (mount:", stdout);
+        if (comp->mount_read_only) fputs(" ro", stdout);
+        if (comp->mount_noexec) fputs(" noexec", stdout);
+        if (comp->mount_nosuid) fputs(" nosuid", stdout);
+        putchar(')');
+    }
+    if (comp->attr_flags_known && (comp->attr_immutable || comp->attr_append_only))
+    {
+        fputs("  (attr:", stdout);
+        if (comp->attr_immutable) fputs(" immutable", stdout);
+        if (comp->attr_append_only) fputs(" append-only", stdout);
+        putchar(')');
+    }
+}
+
 static void render_tree(const AccessResult *result, AccessOperation op)
 {
     const AccessPath *ap = result->access_path;
@@ -206,26 +234,7 @@ static void render_tree(const AccessResult *result, AccessOperation op)
         printf("%c%s  %s:%s   %-7s  %s",
                file_type_char(comp->st.st_mode), mstr,
                owner, grp, checked, is_block ? "BLOCKED" : "ok");
-        if (comp->file_caps)
-            printf("  (caps: %s)", comp->file_caps);
-        if (comp->selinux_context)
-            printf("  (selinux: %s)", comp->selinux_context);
-        if (comp->mount_flags_known &&
-            (comp->mount_read_only || comp->mount_noexec || comp->mount_nosuid))
-        {
-            fputs("  (mount:", stdout);
-            if (comp->mount_read_only) fputs(" ro", stdout);
-            if (comp->mount_noexec) fputs(" noexec", stdout);
-            if (comp->mount_nosuid) fputs(" nosuid", stdout);
-            putchar(')');
-        }
-        if (comp->attr_flags_known && (comp->attr_immutable || comp->attr_append_only))
-        {
-            fputs("  (attr:", stdout);
-            if (comp->attr_immutable) fputs(" immutable", stdout);
-            if (comp->attr_append_only) fputs(" append-only", stdout);
-            putchar(')');
-        }
+        render_component_annotations(comp);
         putchar('\n');
     }
 }

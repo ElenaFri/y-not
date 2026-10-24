@@ -97,12 +97,36 @@ bool capability_conf_grants(const char *config_path, const User *user,
     return result;
 }
 
+/* capability.conf never changes during a single run, and both DAC flags depend
+   only on the user. Parsing the file once per user (re-reading on every
+   per-component read/write/execute probe) dominated the I/O; cache both verdicts
+   keyed on the uid. --compare walks several users, so the cache is refreshed
+   whenever the uid changes. Single-threaded tool: a static cache is safe. */
+static bool cache_valid = false;
+static uid_t cache_uid;
+static bool cache_override;
+static bool cache_read_search;
+
+static void load_dac_caps(const User *user)
+{
+    if (cache_valid && cache_uid == user->uid)
+        return;
+    cache_uid = user->uid;
+    cache_override =
+        capability_conf_grants(CAPABILITY_CONF_PATH, user, "cap_dac_override");
+    cache_read_search =
+        capability_conf_grants(CAPABILITY_CONF_PATH, user, "cap_dac_read_search");
+    cache_valid = true;
+}
+
 bool user_has_dac_override(const User *user)
 {
-    return capability_conf_grants(CAPABILITY_CONF_PATH, user, "cap_dac_override");
+    load_dac_caps(user);
+    return cache_override;
 }
 
 bool user_has_dac_read_search(const User *user)
 {
-    return capability_conf_grants(CAPABILITY_CONF_PATH, user, "cap_dac_read_search");
+    load_dac_caps(user);
+    return cache_read_search;
 }
