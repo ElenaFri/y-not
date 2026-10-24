@@ -3,6 +3,34 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* The tokens already consumed sit in [start, current): each had its trailing
+   comma overwritten with '\0' as it was processed, so they form a run of
+   NUL-terminated strings we can walk to spot a repeat of `tok`. */
+static bool token_seen_before(const char *start, const char *current,
+                              const char *tok)
+{
+    for (const char *prior = start; prior < current; prior += strlen(prior) + 1)
+        if (strcmp(prior, tok) == 0)
+            return true;
+    return false;
+}
+
+static char *allowed_account_name(const char *name, const char *path,
+                                  AccessOperation operation)
+{
+    User *u = user_lookup(name);
+    if (!u)
+        return NULL;
+
+    char *allowed = NULL;
+    AccessResult r = check_access(u, path, operation);
+    if (r.allowed)
+        allowed = strdup(u->name);
+    access_result_free(&r);
+    user_free(u);
+    return allowed;
+}
+
 char **compare_allowed_accounts(const char *list, const char *primary,
                                 const char *path, AccessOperation operation,
                                 size_t *out_count)
@@ -25,49 +53,25 @@ char **compare_allowed_accounts(const char *list, const char *primary,
     }
 
     size_t count = 0;
-    char *tok = work;
-    while (tok)
+    char *cursor = work;
+    while (cursor)
     {
-        char *delimiter = strchr(tok, ',');
+        char *delimiter = strchr(cursor, ',');
         if (delimiter)
             *delimiter = '\0';
 
-        bool duplicate = false;
-        size_t token_offset = (size_t)(tok - work);
-        size_t token_length = strlen(tok);
-        for (const char *prior = list; prior < list + token_offset;)
+        const char *tok = cursor;
+        bool skip = *tok == '\0' || strcmp(tok, primary) == 0 ||
+                    token_seen_before(work, cursor, tok);
+
+        if (!skip && count < cap)
         {
-            const char *prior_end = strchr(prior, ',');
-            if (!prior_end || prior_end > list + token_offset)
-                prior_end = list + token_offset;
-            size_t prior_length = (size_t)(prior_end - prior);
-            if (prior_length == token_length &&
-                memcmp(prior, tok, prior_length) == 0)
-            {
-                duplicate = true;
-                break;
-            }
-            prior = prior_end + 1;
+            char *name = allowed_account_name(tok, path, operation);
+            if (name)
+                allowed[count++] = name;
         }
 
-        if (*tok != '\0' && strcmp(tok, primary) != 0 && !duplicate)
-        {
-            User *u = user_lookup(tok);
-            if (u)
-            {
-                AccessResult r = check_access(u, path, operation);
-                if (r.allowed)
-                {
-                    char *name = strdup(u->name);
-                    if (name)
-                        allowed[count++] = name;
-                }
-                access_result_free(&r);
-                user_free(u);
-            }
-        }
-
-        tok = delimiter ? delimiter + 1 : NULL;
+        cursor = delimiter ? delimiter + 1 : NULL;
     }
     free(work);
     *out_count = count;
