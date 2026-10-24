@@ -9,7 +9,7 @@ y-not \- explain why a user can or cannot access a file or directory
 .IR USER , USER ,... ]
 .br
 .B y-not
-.RB { \-\-help | \-\-version }
+.RB { \-\-help | \-h | \-\-version }
 .SH DESCRIPTION
 .B y-not
 traces the access path to
@@ -155,6 +155,12 @@ stays 1). The list is explicit: y-not never enumerates every account on the
 system, because the name service may be incomplete and MAC confinement is
 process-dependent. Duplicate and unknown names are skipped, and the primary
 user is never compared against itself.
+.TP
+.BR \-\-help ", " \-h
+Print a short usage summary and exit. Must be the only argument.
+.TP
+.B \-\-version
+Print the program name and version and exit. Must be the only argument.
 .SH EXIT STATUS
 .TP
 .B 0

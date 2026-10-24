@@ -10,6 +10,7 @@ Don't take y-not's word for it: where it safely can, y-not asks the kernel too, 
 - Add one text line — `verified:` when the kernel confirms, `MISMATCH:` when it disagrees (most often a security module such as SELinux or AppArmor denying a DAC/ACL-granted access), `unverified:` with an honest reason when it could not run — and an additive top-level `verification` object in JSON, keeping the schema version unchanged
 - Skip the probe where it would mislead rather than confirm: when `access(2)` is blind to the real blocker (inode attributes, the sticky rule), when the path could not be fully resolved or traversed, and for `delete`; probing an account other than your own requires root
 - Keep the cross-check strictly advisory — it never overrides the modeled verdict — and document it in the README and man page
+- Internals (no behaviour change): cache per-user `capability.conf` lookups instead of re-reading the file on every permission check, and cut static-analysis maintainability debt
 
 ## v1.7.0 — Compare access across named accounts
 
