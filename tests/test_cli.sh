@@ -34,7 +34,7 @@ expect_exit "long help option" 0 "$BIN" --help
 expect_exit "short help option" 0 "$BIN" -h
 expect_contains "help describes JSON output" "--json" "$BIN" --help
 expect_exit "version option" 0 "$BIN" --version
-expect_contains "version matches package version" "y-not 1.7.0" "$BIN" --version
+expect_contains "version matches package version" "y-not 1.8.0" "$BIN" --version
 expect_exit "no arguments"       1 "$BIN"
 expect_exit "one argument"       1 "$BIN" "$USER_NAME"
 expect_exit "too many arguments" 1 "$BIN" "$USER_NAME" read /etc/hosts extra

@@ -265,6 +265,32 @@ static void print_mac(bool allowed)
     fputs("\n  },\n", stdout);
 }
 
+/* The additive "verification" object reports the kernel cross-check: y-not's
+   verdict stays the modeled one, this only says whether access(2) under the
+   target identity agreed. "kernel_allowed" is null when the probe did not run
+   (status "not_probed"), and "detail" carries the honest reason or the
+   divergence sentence. schema_version stays 1 - the key is only ever added. */
+static void print_verification(const Verification *v)
+{
+    const char *status;
+    switch (v->status)
+    {
+    case VERIFICATION_CONFIRMED: status = "confirmed"; break;
+    case VERIFICATION_DIVERGENT: status = "divergent"; break;
+    case VERIFICATION_NOT_PROBED:
+    default:                     status = "not_probed"; break;
+    }
+
+    printf("  \"verification\": {\"status\": \"%s\", \"kernel_allowed\": ", status);
+    if (v->status == VERIFICATION_NOT_PROBED)
+        fputs("null", stdout);
+    else
+        fputs(v->kernel_allowed ? "true" : "false", stdout);
+    fputs(", \"detail\": ", stdout);
+    json_print_string_or_null(v->detail);
+    fputs("},\n", stdout);
+}
+
 static void print_header(const char *username, AccessOperation op, const char *path)
 {
     printf("{\n");
@@ -279,7 +305,8 @@ static void print_header(const char *username, AccessOperation op, const char *p
 
 void render_result_json(const AccessResult *result, const char *username,
                         AccessOperation op, const char *requested_path,
-                        const ComparedUsers *compared)
+                        const ComparedUsers *compared,
+                        const Verification *verification)
 {
     const char *target = requested_path;
     if (result->access_path && result->access_path->count > 0)
@@ -315,6 +342,8 @@ void render_result_json(const AccessResult *result, const char *username,
         }
         fputs("],\n", stdout);
     }
+    if (verification)
+        print_verification(verification);
     print_mac(result->allowed);
     printf("  \"trace\": [\n");
 

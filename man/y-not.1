@@ -1,4 +1,4 @@
-.TH Y-NOT 1 "2026-10-24" "y-not 1.7.0" "User Commands"
+.TH Y-NOT 1 "2026-10-24" "y-not 1.8.0" "User Commands"
 .SH NAME
 y-not \- explain why a user can or cannot access a file or directory
 .SH SYNOPSIS
@@ -71,6 +71,38 @@ fields respectively (the JSON field names are a stable contract and are not
 renamed). When no permission change applies, such as a missing path, the
 remediation is
 .BR null .
+.PP
+The verdict above is the modeled one. When it can, y-not also asks the kernel
+itself: it forks, drops to the target identity, and calls
+.BR access (2)
+on the resolved target, then reports whether the kernel agreed. The text output
+gains one line:
+.B verified:
+when the kernel confirms the verdict,
+.B MISMATCH:
+when the kernel disagrees - most often a security module such as SELinux or
+AppArmor denying an access the DAC/ACL model would grant - and
+.B unverified:
+with an honest reason when the probe could not run. In JSON this is an additive
+top-level
+.B verification
+object whose
+.B status
+is
+.IR confirmed ,
+.I divergent
+or
+.IR not_probed ,
+whose
+.B kernel_allowed
+is a boolean or
+.B null
+when not probed, and which carries a
+.B detail
+string. The cross-check never changes the verdict; it only corroborates or
+flags it, so
+.B schema_version
+stays 1.
 .SH OPERATION
 .TP
 .B read\fR, \fBr
@@ -187,6 +219,23 @@ same DAC/ACL model and caveats as the primary verdict. It is never a
 system-wide answer to "who can access this": the name service may not expose
 every account, and MAC confinement is process-dependent, so an exhaustive
 enumeration could not be sound.
+.PP
+The kernel cross-check is a corroboration, never the verdict. y-not skips it
+- reporting
+.B not_probed
+with the reason - whenever
+.BR access (2)
+would be blind to what actually drove the decision (an inode attribute, the
+sticky rule) or whenever y-not could not fully resolve or traverse the path,
+since a privileged probe could then succeed where y-not could not look and
+manufacture a false divergence. The
+.B delete
+operation is never probed, because
+.BR access (2)
+cannot test entry removal. Probing another user's access requires root; run as
+an unprivileged user, y-not can only cross-check its own identity and reports
+.B requires root to verify as another user
+otherwise.
 .SH SEE ALSO
 .BR stat (1),
 .BR getfacl (1),

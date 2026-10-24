@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.8.0 — Cross-check the verdict against the kernel
+
+Don't take y-not's word for it: where it safely can, y-not asks the kernel too, and tells you when they disagree.
+
+- Probe the kernel for a ground-truth check: fork, drop to the target identity and call `access(2)` on the resolved path, then report whether it agrees with the modeled verdict
+- Add one text line — `verified:` when the kernel confirms, `MISMATCH:` when it disagrees (most often a security module such as SELinux or AppArmor denying a DAC/ACL-granted access), `unverified:` with an honest reason when it could not run — and an additive top-level `verification` object in JSON, keeping the schema version unchanged
+- Skip the probe where it would mislead rather than confirm: when `access(2)` is blind to the real blocker (inode attributes, the sticky rule), when the path could not be fully resolved or traversed, and for `delete`; probing an account other than your own requires root
+- Keep the cross-check strictly advisory — it never overrides the modeled verdict — and document it in the README and man page
+
 ## v1.7.0 — Compare access across named accounts
 
 See which of the accounts you name can perform the same operation on the same path.

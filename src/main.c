@@ -2,6 +2,7 @@
 #include "compare.h"
 #include "render/json_output.h"
 #include "render/output.h"
+#include "verify/verification.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -94,6 +95,7 @@ int main(int argc, char *argv[])
     }
 
     AccessResult result = check_access(user, path, operation);
+    Verification verification = verification_evaluate(&result, user, path, operation);
 
     ComparedUsers compared = {0};
     char **allowed_names = NULL;
@@ -106,9 +108,9 @@ int main(int argc, char *argv[])
     }
 
     if (json)
-        render_result_json(&result, username, operation, path, &compared);
+        render_result_json(&result, username, operation, path, &compared, &verification);
     else
-        render_result_text(&result, user, operation, &compared);
+        render_result_text(&result, user, operation, &compared, &verification);
 
     if (allowed_names)
     {

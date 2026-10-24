@@ -219,8 +219,42 @@ static void render_tree(const AccessResult *result, AccessOperation op)
     }
 }
 
+/* The kernel cross-check line, aligned on the same label column as the denial
+   block. CONFIRMED reassures (the kernel agrees), MISMATCH is the useful signal
+   (the kernel disagrees - the DIVERGENT detail says which way and why), and an
+   unverified result is shown with the honest reason it could not be checked. */
+static void render_verification(const Verification *v, bool allowed)
+{
+    if (!v)
+        return;
+
+    char line[640];
+    const char *label;
+    switch (v->status)
+    {
+    case VERIFICATION_CONFIRMED:
+        label = "verified:";
+        snprintf(line, sizeof(line), "the kernel agrees this access is %s",
+                 allowed ? "allowed" : "denied");
+        break;
+    case VERIFICATION_DIVERGENT:
+        label = "MISMATCH:";
+        snprintf(line, sizeof(line), "%s", v->detail ? v->detail : "");
+        break;
+    case VERIFICATION_NOT_PROBED:
+    default:
+        if (!v->detail)
+            return;
+        label = "unverified:";
+        snprintf(line, sizeof(line), "%s", v->detail);
+        break;
+    }
+    printf("  %-12s%s\n", label, line);
+}
+
 void render_result_text(const AccessResult *result, const User *user,
-                        AccessOperation op, const ComparedUsers *compared)
+                        AccessOperation op, const ComparedUsers *compared,
+                        const Verification *verification)
 {
     const char *target = "?";
     if (result->access_path && result->access_path->count > 0)
@@ -297,6 +331,12 @@ void render_result_text(const AccessResult *result, const User *user,
         if (format_remediation(result, op, user->name, remedy, sizeof(remedy)))
             printf("  %-12s%s\n", "to allow:", remedy);
     }
+
+    /* Kernel cross-check: y-not's verdict is the modeled one, but when it could
+       ask the kernel too (via access(2) under the target identity), it reports
+       whether the kernel agrees. A MISMATCH is the useful case - most often a
+       security module denying access the DAC/ACL model would grant. */
+    render_verification(verification, result->allowed);
 
     /* MAC honesty: when the DAC/ACL verdict is "allowed" but a mandatory
        access control module is active, say so right under the verdict. The

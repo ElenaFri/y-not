@@ -104,7 +104,7 @@ static char *render_and_capture(const AccessResult *result, const char *user,
     Capture cap;
     if (!begin_capture(&cap))
         return NULL;
-    render_result_json(result, user, op, path, NULL);
+    render_result_json(result, user, op, path, NULL, NULL);
     return end_capture(&cap);
 }
 
@@ -127,7 +127,20 @@ static char *compare_and_capture(const AccessResult *result, const char *user,
     Capture cap;
     if (!begin_capture(&cap))
         return NULL;
-    render_result_json(result, user, op, path, compared);
+    render_result_json(result, user, op, path, compared, NULL);
+    return end_capture(&cap);
+}
+
+/* Capture variant that drives the kernel cross-check, so the additive
+   "verification" object is emitted. */
+static char *verify_and_capture(const AccessResult *result, const char *user,
+                                AccessOperation op, const char *path,
+                                const Verification *verification)
+{
+    Capture cap;
+    if (!begin_capture(&cap))
+        return NULL;
+    render_result_json(result, user, op, path, NULL, verification);
     return end_capture(&cap);
 }
 
@@ -848,6 +861,80 @@ static void check_allowed_for_array(void)
     free_components(comps, 2);
 }
 
+/* The additive "verification" object mirrors the Verification struct: the three
+   statuses, a "kernel_allowed" that is a boolean when probed and null when not,
+   and a "detail" that is a string or null. The key is additive, so it only
+   appears when a Verification was handed to the renderer. */
+static void check_verification_object(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+
+    /* CONFIRMED: status string, kernel_allowed true, detail null. */
+    Verification confirmed = {.status = VERIFICATION_CONFIRMED, .kernel_allowed = true};
+    char *json = verify_and_capture(&result, "alice", ACCESS_READ, "/target", &confirmed);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"verification\": {\"status\": \"confirmed\", "
+                            "\"kernel_allowed\": true, \"detail\": null}") != NULL);
+        free(json);
+    }
+
+    /* DIVERGENT: kernel_allowed false, detail string present. */
+    Verification divergent = {.status = VERIFICATION_DIVERGENT, .kernel_allowed = false,
+                             .detail = "the kernel denies this although the model allows it"};
+    json = verify_and_capture(&result, "alice", ACCESS_READ, "/target", &divergent);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"status\": \"divergent\"") != NULL);
+        CHECK(strstr(json, "\"kernel_allowed\": false") != NULL);
+        CHECK(strstr(json, "the kernel denies this although the model allows it") != NULL);
+        free(json);
+    }
+
+    /* NOT_PROBED: kernel_allowed null, detail carries the honest reason. */
+    Verification not_probed = {.status = VERIFICATION_NOT_PROBED,
+                              .detail = "requires root to verify as another user"};
+    json = verify_and_capture(&result, "alice", ACCESS_READ, "/target", &not_probed);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"status\": \"not_probed\"") != NULL);
+        CHECK(strstr(json, "\"kernel_allowed\": null") != NULL);
+        CHECK(strstr(json, "requires root to verify as another user") != NULL);
+        free(json);
+    }
+
+    /* NOT_PROBED with no detail: status present, detail null. */
+    Verification silent = {.status = VERIFICATION_NOT_PROBED, .detail = NULL};
+    json = verify_and_capture(&result, "alice", ACCESS_READ, "/target", &silent);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"status\": \"not_probed\", \"kernel_allowed\": null, "
+                            "\"detail\": null") != NULL);
+        free(json);
+    }
+
+    /* No Verification handed in: the key is absent entirely. */
+    json = render_and_capture(&result, "alice", ACCESS_READ, "/target");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "verification") == NULL);
+        free(json);
+    }
+
+    free_components(comps, 2);
+}
+
 int main(void)
 {
     check_allowed_case();
@@ -868,5 +955,6 @@ int main(void)
     check_delete_json();
     check_attribute_json();
     check_allowed_for_array();
+    check_verification_object();
     return TEST_SUMMARY();
 }

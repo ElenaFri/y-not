@@ -41,7 +41,7 @@ static void render_silently(const AccessResult *result, const User *user, Access
     dup2(devnull, STDOUT_FILENO);
     close(devnull);
 
-    render_result_text(result, user, op, NULL);
+    render_result_text(result, user, op, NULL, NULL);
 
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
@@ -64,7 +64,7 @@ static char *render_and_capture(const AccessResult *result, const User *user,
         return NULL;
     }
 
-    render_result_text(result, user, op, NULL);
+    render_result_text(result, user, op, NULL, NULL);
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
     close(saved);
@@ -744,7 +744,7 @@ static char *render_compare_and_capture(const AccessResult *result, const User *
         return NULL;
     }
 
-    render_result_text(result, user, op, compared);
+    render_result_text(result, user, op, compared, NULL);
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
     close(saved);
@@ -838,6 +838,138 @@ static void check_compare_line_is_rendered(void)
     free(comps[1].path);
 }
 
+/* Like render_and_capture() but exercises the kernel cross-check line: the
+   renderer is handed a Verification so the "verified:"/"MISMATCH:"/
+   "unverified:" line can be produced. */
+static char *render_verify_and_capture(const AccessResult *result, const User *user,
+                                       AccessOperation op, const Verification *verification)
+{
+    FILE *capture = tmpfile();
+    if (!capture)
+        return NULL;
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    if (saved == -1 || dup2(fileno(capture), STDOUT_FILENO) == -1)
+    {
+        if (saved != -1)
+            close(saved);
+        fclose(capture);
+        return NULL;
+    }
+
+    render_result_text(result, user, op, NULL, verification);
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+
+    if (fseek(capture, 0, SEEK_END) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    long length = ftell(capture);
+    if (length < 0 || fseek(capture, 0, SEEK_SET) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    char *text = malloc((size_t)length + 1);
+    if (text)
+    {
+        size_t read_count = fread(text, 1, (size_t)length, capture);
+        text[read_count] = '\0';
+    }
+    fclose(capture);
+    return text;
+}
+
+/* The kernel cross-check line reflects the Verification it is handed: CONFIRMED
+   reassures with "verified:", DIVERGENT raises "MISMATCH:" with the reason,
+   NOT_PROBED with a reason explains why it could not be checked, and a
+   NOT_PROBED with no detail (or no Verification at all) prints no line. */
+static void check_verification_line_is_rendered(void)
+{
+    mock_selinux = (SelinuxStatus){0};
+    mock_apparmor = (ApparmorStatus){0};
+
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_execute = true;
+    comps[1].path = strdup("/target");
+    comps[1].st.st_mode = S_IFREG | 0644;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_OTHER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OTHER};
+
+    AccessPath ap = {.components = comps, .count = 2};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "elena"};
+
+    AccessResult allowed = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+    AccessResult denied = {.allowed = false, .reason = REASON_OTHER_DENIED,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+
+    /* CONFIRMED on an allowed verdict: the kernel agrees it is allowed. */
+    Verification confirmed_ok = {.status = VERIFICATION_CONFIRMED, .kernel_allowed = true};
+    char *text = render_verify_and_capture(&allowed, &user, ACCESS_READ, &confirmed_ok);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "verified:") != NULL);
+        CHECK(strstr(text, "the kernel agrees this access is allowed") != NULL);
+        free(text);
+    }
+
+    /* CONFIRMED on a denied verdict: the kernel agrees it is denied. */
+    Verification confirmed_no = {.status = VERIFICATION_CONFIRMED, .kernel_allowed = false};
+    text = render_verify_and_capture(&denied, &user, ACCESS_WRITE, &confirmed_no);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "the kernel agrees this access is denied") != NULL);
+        free(text);
+    }
+
+    /* DIVERGENT: the mismatch is surfaced with its detail sentence. */
+    Verification divergent = {.status = VERIFICATION_DIVERGENT, .kernel_allowed = false,
+                             .detail = "the kernel denies this although the model allows it"};
+    text = render_verify_and_capture(&allowed, &user, ACCESS_READ, &divergent);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "MISMATCH:") != NULL);
+        CHECK(strstr(text, "the kernel denies this although the model allows it") != NULL);
+        free(text);
+    }
+
+    /* NOT_PROBED with a reason: the reason is shown as "unverified:". */
+    Verification not_probed = {.status = VERIFICATION_NOT_PROBED,
+                              .detail = "requires root to verify as another user"};
+    text = render_verify_and_capture(&allowed, &user, ACCESS_READ, &not_probed);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "unverified:") != NULL);
+        CHECK(strstr(text, "requires root to verify as another user") != NULL);
+        free(text);
+    }
+
+    /* NOT_PROBED with no detail: nothing to say, so no line at all. */
+    Verification silent = {.status = VERIFICATION_NOT_PROBED, .detail = NULL};
+    text = render_verify_and_capture(&allowed, &user, ACCESS_READ, &silent);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "verified:") == NULL);
+        CHECK(strstr(text, "MISMATCH:") == NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+}
+
 int main(void)
 {
     check_deep_tree_does_not_crash();
@@ -857,5 +989,6 @@ int main(void)
     check_sticky_proof_is_rendered();
     check_attribute_annotations_and_proof();
     check_compare_line_is_rendered();
+    check_verification_line_is_rendered();
     return TEST_SUMMARY();
 }
