@@ -86,8 +86,11 @@ static void check_current_user_in_process(void)
 }
 
 /* A directory write is probed as write AND search: a directory with write but
-   no execute bit (0600) cannot receive new entries, so the probe denies it.
-   0600 has no execute bit at all, so this holds for root too. */
+   no execute bit (0600) cannot receive new entries, so the probe denies it -
+   but only for an unprivileged user. Root's DAC_OVERRIDE grants search on any
+   directory regardless of its mode bits (the "needs at least one execute bit"
+   rule applies to regular files, not directories), so the denial can only be
+   demonstrated when not running as root. */
 static void check_directory_write_needs_search(void)
 {
     User *me = current_user();
@@ -107,9 +110,12 @@ static void check_directory_write_needs_search(void)
     KernelProbe open_dir = kernel_probe_access(me, dir, ACCESS_WRITE);
     CHECK(open_dir.verdict == KERNEL_PROBE_ALLOWED);
 
-    CHECK(chmod(dir, 0600) == 0);
-    KernelProbe no_search = kernel_probe_access(me, dir, ACCESS_WRITE);
-    CHECK(no_search.verdict == KERNEL_PROBE_DENIED);
+    if (geteuid() != 0)
+    {
+        CHECK(chmod(dir, 0600) == 0);
+        KernelProbe no_search = kernel_probe_access(me, dir, ACCESS_WRITE);
+        CHECK(no_search.verdict == KERNEL_PROBE_DENIED);
+    }
 
     chmod(dir, 0700); /* restore so cleanup can remove it */
     rmdir(dir);
