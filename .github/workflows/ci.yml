@@ -6,6 +6,11 @@ on:
   pull_request:
     branches: [main]
 
+# Cancel superseded runs for the same ref so quick successive pushes don't pile up.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest

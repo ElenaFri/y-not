@@ -39,8 +39,27 @@ jobs:
                       exit 1
                   fi
 
+            - name: Run tests
+              run: make check
+
             - name: Build .deb package
               run: make deb
+
+            - name: Smoke-test the built package
+              run: |
+                  apt-get install -y --no-install-recommends ./build/y-not_*.deb
+                  test "$(/usr/bin/y-not --version)" = "y-not $(dpkg-query -W -f='${Version}' y-not)"
+                  /usr/bin/y-not nobody read /etc/passwd
+                  set +e
+                  /usr/bin/y-not nobody read /etc/shadow
+                  status=$?
+                  set -e
+                  test "$status" -eq 1
+
+            - name: Generate checksums
+              run: |
+                  ( cd build && sha256sum y-not_*.deb > SHA256SUMS )
+                  cat build/SHA256SUMS
 
             - name: Prepare release notes
               run: |
@@ -68,14 +87,14 @@ jobs:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
               run: |
                   if gh release view "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
-                      gh release upload "${GITHUB_REF_NAME}" build/*.deb --clobber \
+                      gh release upload "${GITHUB_REF_NAME}" build/*.deb build/SHA256SUMS --clobber \
                           --repo "${GITHUB_REPOSITORY}"
                       gh release edit "${GITHUB_REF_NAME}" \
                           --title "${GITHUB_REF_NAME}" \
                           --notes-file build/release-notes.md \
                           --repo "${GITHUB_REPOSITORY}"
                   else
-                      gh release create "${GITHUB_REF_NAME}" build/*.deb \
+                      gh release create "${GITHUB_REF_NAME}" build/*.deb build/SHA256SUMS \
                           --repo "${GITHUB_REPOSITORY}" \
                           --title "${GITHUB_REF_NAME}" \
                           --notes-file build/release-notes.md
