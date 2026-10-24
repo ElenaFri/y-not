@@ -7,10 +7,13 @@
 
 static const char *gid_to_name(gid_t gid, char *buffer, size_t buffer_size)
 {
-    const struct group *group = getgrgid(gid);
-    if (group)
-        return group->gr_name;
-    snprintf(buffer, buffer_size, "%u", (unsigned)gid);
+    struct group grp;
+    struct group *found = NULL;
+    char storage[1024];
+    if (getgrgid_r(gid, &grp, storage, sizeof storage, &found) == 0 && found)
+        snprintf(buffer, buffer_size, "%s", found->gr_name);
+    else
+        snprintf(buffer, buffer_size, "%u", (unsigned)gid);
     return buffer;
 }
 

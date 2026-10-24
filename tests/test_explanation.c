@@ -6,9 +6,21 @@
 
 static struct group mock_group = {.gr_name = "y_not_test_group", .gr_gid = 1234};
 
-struct group *getgrgid(gid_t gid)
+int getgrgid_r(gid_t gid, struct group *grp, char *buf, size_t buflen,
+               struct group **result)
 {
-    return gid == mock_group.gr_gid ? &mock_group : NULL;
+    (void)buf;
+    (void)buflen;
+    if (gid == mock_group.gr_gid)
+    {
+        *grp = mock_group;
+        *result = grp;
+    }
+    else
+    {
+        *result = NULL;
+    }
+    return 0;
 }
 
 static void check_explanation(AccessReason reason, AccessOperation op,
