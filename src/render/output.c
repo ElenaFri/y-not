@@ -219,7 +219,8 @@ static void render_tree(const AccessResult *result, AccessOperation op)
     }
 }
 
-void render_result_text(const AccessResult *result, const User *user, AccessOperation op)
+void render_result_text(const AccessResult *result, const User *user,
+                        AccessOperation op, const ComparedUsers *compared)
 {
     const char *target = "?";
     if (result->access_path && result->access_path->count > 0)
@@ -230,13 +231,33 @@ void render_result_text(const AccessResult *result, const User *user, AccessOper
     MacWarning mac = mac_warning_evaluate(result->allowed, se, aa);
 
     putchar('\n');
-    if (result->allowed)
+    printf("%s %s %s %s\n", user->name, result->allowed ? "can" : "cannot",
+           access_operation_name(op), target);
+
+    /* The comparison line sits right under the verdict, at the same left
+       margin. "allowed for:" is a human label, not a stable field - the --json
+       output carries the machine-readable "allowed_for" array instead. */
+    if (compared && compared->requested)
     {
-        printf("%s can %s %s\n", user->name, access_operation_name(op), target);
+        fputs("  allowed for: ", stdout);
+        if (compared->allowed_count == 0)
+        {
+            fputs("none", stdout);
+        }
+        else
+        {
+            for (size_t i = 0; i < compared->allowed_count; i++)
+            {
+                if (i)
+                    fputs(", ", stdout);
+                fputs(compared->allowed[i], stdout);
+            }
+        }
+        putchar('\n');
     }
-    else
+
+    if (!result->allowed)
     {
-        printf("%s cannot %s %s\n", user->name, access_operation_name(op), target);
         if (result->blocked_path)
             printf("\n  %-12s%s\n", "blocked at:", result->blocked_path);
         char explanation[512];

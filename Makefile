@@ -197,6 +197,19 @@ $(BUILDDIR)/test_resolve_failures: $(TESTDIR)/test_resolve_failures.c \
 	    -Wl,--wrap=realloc -Wl,--wrap=strdup -Wl,--wrap=readlink \
 	    -Wl,--wrap=statvfs -o $@ $^ $(LDLIBS)
 
+# compare.c resolves each listed account through the real user/path/permission
+# stack, so it links the same modules as test_access, plus allocation wrapping
+# to cover its cleanup and error-return paths.
+$(BUILDDIR)/test_compare: $(TESTDIR)/test_compare.c \
+    $(SRCDIR)/compare.c $(SRCDIR)/access.c \
+    $(SRCDIR)/permissions/permissions.c $(SRCDIR)/permissions/acl_eval.c \
+    $(SRCDIR)/permissions/mode_bits.c $(SRCDIR)/permissions/capabilities.c \
+    $(SRCDIR)/context/selinux_info.c \
+    $(SRCDIR)/resolve/path.c $(SRCDIR)/resolve/user.c | $(BUILDDIR)
+	@mkdir -p $(dir $@)
+	$(CC) $(CFLAGS_DEBUG) -Wl,--wrap=calloc -Wl,--wrap=strdup \
+	    -o $@ $^ $(LDLIBS)
+
 clean:
 	$(RM) -r $(BUILDDIR) $(TARGET)
 

@@ -5,6 +5,8 @@ y-not \- explain why a user can or cannot access a file or directory
 .B y-not
 .RB [ \-\-json ]
 .I USER OPERATION PATH
+.RB [ \-\-compare
+.IR USER , USER ,... ]
 .br
 .B y-not
 .RB { \-\-help | \-\-version }
@@ -100,6 +102,27 @@ process-specific security policy.
 Emit a JSON document (schema_version 1) instead of text. Must be the first
 argument. Always emits a valid document, even for an unknown user or a
 path that could not be resolved.
+.TP
+.BI \-\-compare " USER,USER,..."
+Also report which of the listed accounts are allowed the same
+.I OPERATION
+on the same
+.IR PATH .
+Must come last, after the three positional arguments. The primary verdict and
+exit status are unchanged; the text output gains an
+.B allowed for:
+line and, with
+.BR \-\-json ,
+an additive top-level
+.B allowed_for
+array (present only when
+.B \-\-compare
+is given, so
+.B schema_version
+stays 1). The list is explicit: y-not never enumerates every account on the
+system, because the name service may be incomplete and MAC confinement is
+process-dependent. Duplicate and unknown names are skipped, and the primary
+user is never compared against itself.
 .SH EXIT STATUS
 .TP
 .B 0
@@ -115,6 +138,9 @@ Check whether alice can read a file:
 .TP
 Same, using the short form:
 .B y-not alice r /srv/project/report.pdf
+.TP
+Report which other accounts can read it:
+.B y-not alice read /srv/project/report.pdf \-\-compare bob,backup
 .SH LIMITATIONS
 .B y-not
 models Unix permissions and POSIX ACLs and applies read-only/noexec mount
@@ -153,6 +179,14 @@ search, y-not cannot inspect what lies beneath it; it then reports that the path
 could not be inspected and leaves the verdict undetermined rather than guessing.
 Run y-not as root, or as a user who can traverse the whole path, for a complete
 diagnosis.
+.PP
+The
+.B \-\-compare
+option evaluates only the accounts named on the command line, each under the
+same DAC/ACL model and caveats as the primary verdict. It is never a
+system-wide answer to "who can access this": the name service may not expose
+every account, and MAC confinement is process-dependent, so an exhaustive
+enumeration could not be sound.
 .SH SEE ALSO
 .BR stat (1),
 .BR getfacl (1),

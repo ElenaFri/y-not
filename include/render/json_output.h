@@ -8,9 +8,13 @@
    emits a valid document with an empty "trace" array, so scripts consuming
    --json output never have to handle a mixed JSON/plain-text error format.
    `requested_path` is used as a fallback for the "path" field when
-   result->access_path is NULL. */
+   result->access_path is NULL. `compared` is optional: when non-NULL and
+   requested, an additive top-level "allowed_for" array lists the compared
+   accounts that are allowed (schema_version stays 1 - the key is only ever
+   added, never required). */
 void render_result_json(const AccessResult *result, const char *username,
-                        AccessOperation op, const char *requested_path);
+                        AccessOperation op, const char *requested_path,
+                        const ComparedUsers *compared);
 
 /* user_lookup() failure never reaches check_access(); this keeps --json's
    output contract valid for that case too. */

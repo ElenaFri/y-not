@@ -171,6 +171,29 @@ The trace annotates the blocking component with `(attr: immutable)` - the detail
 
 A related attribute, append-only (`chattr +a`), blocks removal while still allowing writes that append. y-not is deliberate about the difference: a `write` to an append-only file is still reported as *allowed* (the kernel would accept the append), and only `delete` is blocked, with the entry annotated `(attr: append-only)`. In JSON the reason codes are `immutable` and `append_only`, the blocked component's `decision.source` is `fs_attr`, and `remediation` carries the matching `chattr` command.
 
+## Who else can reach it? Comparing accounts
+
+When a user is refused, the next question is usually "who *can* do this, then?". Pass `--compare` a list of accounts and y-not reports, right under the verdict, which of them are allowed the same operation on the same path:
+
+```text
+$ y-not alice read /srv/data/export.csv --compare bob,backup,deploy
+
+alice cannot read /srv/data/export.csv
+  allowed for: backup, deploy
+
+  blocked at: /srv/data/export.csv
+  cause:      no read permission: not the owner and not in the file's group
+  proof:      Unix other bits: ---
+  to allow:   add alice to a group that grants it: sudo usermod -aG data alice, then log in again
+
+  /                     drwxr-xr-x  root:root   enter    ok
+  └── srv               drwxr-xr-x  root:root   enter    ok
+      └── data          drwxr-x---  root:data   enter    ok
+          └── export.csv  -rw-r-----  root:data   read     BLOCKED
+```
+
+Here `backup` and `deploy` are in the `data` group and can read the file; `bob` cannot, so he is absent from the list. The verdict and exit status are still `alice`'s - `--compare` only adds the comparison line (and, with `--json`, an `allowed_for` array). The list is explicit on purpose: y-not never enumerates every account on the system, because the name service may be incomplete and MAC confinement is process-dependent, so an exhaustive "who can" answer could not be trusted. You compare the accounts you name, and nothing is implied about the ones you do not.
+
 ## Install
 
 Download the amd64 Debian package from [GitHub Releases](https://github.com/ElenaFri/y-not/releases) and let APT resolve the runtime library dependencies:
@@ -184,19 +207,20 @@ The package's runtime dependencies are generated from the linked binary. The rel
 ## Usage
 
 ```sh
-y-not [--json] USER OPERATION PATH
+y-not [--json] USER OPERATION PATH [--compare USER,USER,...]
 ```
 
-`OPERATION` is `read`/`r`, `write`/`w`, `execute`/`x` or `delete`/`d`. `--json` must appear first.
+`OPERATION` is `read`/`r`, `write`/`w`, `execute`/`x` or `delete`/`d`. `--json` must appear first; `--compare` and its comma-separated list come last.
 
 ```sh
 y-not alice read /srv/project/report.pdf
 y-not --json alice write /srv/project
+y-not alice read /srv/project/report.pdf --compare bob,backup
 ```
 
 On a directory, `read` checks permission to list names, `execute` checks search/traversal, and `write` checks whether a directory entry can be created (both write and search are required). On a regular file, `execute` checks permission to attempt execution; it does not validate ELF/script format or check whether an interpreter or loader is available, so permission being allowed does not guarantee that launching the file will succeed. `delete` checks whether the named directory entry may be removed: the parent needs write and search permission, and a sticky directory additionally restricts removal to the entry owner, directory owner or root. `write` and `delete` also honor the immutable (`chattr +i`) and append-only (`chattr +a`) inode attributes, which override ownership. This models unlinking a name; it does not model renaming, removing a non-empty directory, `.`/`..` entries, or process-specific security policy.
 
-The text output's `cause:`, `proof:` and `to allow:` lines correspond to the JSON `reason`, `decision` and `remediation` fields: the text uses plain-language labels for a human reader, while the JSON keys are a stable machine contract and do not change.
+The text output's `cause:`, `proof:` and `to allow:` lines correspond to the JSON `reason`, `decision` and `remediation` fields: the text uses plain-language labels for a human reader, while the JSON keys are a stable machine contract and do not change. With `--compare`, the text adds an `allowed for:` line and the JSON gains an additive top-level `allowed_for` array (listing the compared accounts that are allowed); the array is present only when `--compare` is given, so `schema_version` stays `1`.
 
 The JSON output has `schema_version: 1`. Its `trace` contains path components up to the first blocker and, for resolved components, a `decision` object with the permission source, raw/effective `rwx` bits and ACL mask details. When missing group membership explains a denial, `missing_group_gid` identifies one group whose permissions would grant the requested operation, and `candidate_groups` lists every such group (GID and name); for ACLs, the effective rights after the ACL mask are used. A top-level `mac` object reports SELinux/AppArmor status, `evaluated` (always `false`, since y-not never factors MAC into the verdict), `may_override_verdict` (true when an allowed verdict could still be denied by an active module) and a human-readable `warning` (or `null`). `reason` is a machine-readable reason code, and `remediation` is a human-readable suggestion of the least-privilege change that would grant access (or `null` when no permission change applies, such as a missing path). Exit status is 0 when allowed and 1 when denied, including unknown users and unresolved paths.
 
@@ -209,6 +233,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - Immutable (`chattr +i`) and append-only (`chattr +a`) inode attributes, which override the owner and root alike: immutable blocks write and delete, append-only blocks delete.
 - The path trace, symbolic links, missing components, broken links and symlink loops.
 - A suggested least-privilege remediation for the blocking component (`chmod`, group membership, an ACL grant or mask widening), or a note that a read-only/noexec mount, not a permission, is the blocker. Fixes that change a file you do not own are prefixed with `sudo`, since only the owner or root can apply them.
+- With `--compare`, which of an explicit, caller-supplied list of accounts are allowed the same operation on the same path.
 
 ## Limits and scope
 
@@ -220,6 +245,7 @@ The JSON output has `schema_version: 1`. Its `trace` contains path components up
 - **Directory operations are specific.** `write` on a directory models creating an entry; `delete` models removing the named entry and includes sticky-bit ownership checks. Rename, removing a non-empty directory, ACL inheritance, and races between inspection and use are outside the model.
 - **Inode attributes are read, with two honest caveats.** y-not reports the immutable and append-only attributes and lets them override the DAC/ACL verdict. Because append-only still permits appending, a `write` to an append-only file is reported as *allowed* - the kernel would accept the append - and only `delete` is blocked. Attributes are known only when y-not can open the inode to read them; if the open fails, they are omitted rather than guessed.
 - **y-not inspects the path with its own privileges.** It reads each component's metadata as the user who runs `y-not`, not as the target user. If a parent directory denies the running process search, y-not cannot inspect what lies beneath it; it then reports that the path could not be inspected and the verdict is undetermined, rather than guessing. Run `y-not` as root (or as a user who can traverse the whole path) for a complete diagnosis.
+- **`--compare` compares only the accounts you name.** It is an explicit list, never a system-wide enumeration of "everyone who can": the name service (NSS) may not expose every account, and MAC confinement is process-dependent, so an exhaustive answer could not be sound. Each listed account is evaluated under the same DAC/ACL model (and the same caveats) as the primary verdict; unknown names are skipped silently.
 - **Kernel and security-module behavior remains authoritative.** The actual result can also depend on the process credentials, namespaces, filesystem implementation and active security policy.
 
 ## Build and test

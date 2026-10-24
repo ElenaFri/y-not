@@ -278,7 +278,8 @@ static void print_header(const char *username, AccessOperation op, const char *p
 }
 
 void render_result_json(const AccessResult *result, const char *username,
-                        AccessOperation op, const char *requested_path)
+                        AccessOperation op, const char *requested_path,
+                        const ComparedUsers *compared)
 {
     const char *target = requested_path;
     if (result->access_path && result->access_path->count > 0)
@@ -301,6 +302,19 @@ void render_result_json(const AccessResult *result, const char *username,
     printf(",\n  \"blocked_at\": ");
     json_print_string_or_null(result->blocked_path);
     printf(",\n");
+    /* Additive "allowed_for" array: only emitted when --compare was given, so
+       consumers of the base schema never see a new required key. */
+    if (compared && compared->requested)
+    {
+        fputs("  \"allowed_for\": [", stdout);
+        for (size_t i = 0; i < compared->allowed_count; i++)
+        {
+            if (i)
+                putchar(',');
+            json_print_string(compared->allowed[i]);
+        }
+        fputs("],\n", stdout);
+    }
     print_mac(result->allowed);
     printf("  \"trace\": [\n");
 

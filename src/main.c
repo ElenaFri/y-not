@@ -1,4 +1,5 @@
 #include "access.h"
+#include "compare.h"
 #include "render/json_output.h"
 #include "render/output.h"
 
@@ -13,7 +14,7 @@
 
 static void usage(FILE *out, const char *prog)
 {
-    fprintf(out, "Usage: %s [--json] USER OPERATION PATH\n", prog);
+    fprintf(out, "Usage: %s [--json] USER OPERATION PATH [--compare USER,USER,...]\n", prog);
     fprintf(out, "       %s --help | --version\n", prog);
     fprintf(out, "  OPERATION: read|r  write|w  execute|x  delete|d\n");
 }
@@ -24,6 +25,7 @@ static void help(const char *prog)
     usage(stdout, prog);
     printf("\n");
     printf("  --json     emit a JSON document instead of human-readable text\n");
+    printf("  --compare  also report which of the listed accounts are allowed\n");
     printf("  USER       an existing Unix user name\n");
     printf("  PATH       an absolute or relative filesystem path\n\n");
     printf("Exit status: 0 if access is allowed, 1 if denied or an error occurred.\n");
@@ -58,9 +60,20 @@ int main(int argc, char *argv[])
 
     /* --json must come first: keeps parsing a simple, fixed-position check
        rather than a full flag parser, matching the rest of this CLI. */
-    bool json = (argc == 5 && strcmp(argv[1], "--json") == 0);
+    bool json = (argc >= 5 && strcmp(argv[1], "--json") == 0);
 
-    if (!json && argc != 4)
+    /* argc with just the three positionals; also the index at which an
+       optional "--compare LIST" (two more tokens) would begin. */
+    int after = json ? 5 : 4;
+
+    bool compare = false;
+    const char *compare_list = NULL;
+    if (argc == after + 2 && strcmp(argv[after], "--compare") == 0)
+    {
+        compare = true;
+        compare_list = argv[after + 1];
+    }
+    else if (argc != after)
     {
         usage(stderr, argv[0]);
         return EXIT_FAILURE;
@@ -81,10 +94,28 @@ int main(int argc, char *argv[])
     }
 
     AccessResult result = check_access(user, path, operation);
+
+    ComparedUsers compared = {0};
+    char **allowed_names = NULL;
+    if (compare)
+    {
+        compared.requested = true;
+        allowed_names = compare_allowed_accounts(compare_list, username, path, operation,
+                                                 &compared.allowed_count);
+        compared.allowed = (const char *const *)allowed_names;
+    }
+
     if (json)
-        render_result_json(&result, username, operation, path);
+        render_result_json(&result, username, operation, path, &compared);
     else
-        render_result_text(&result, user, operation);
+        render_result_text(&result, user, operation, &compared);
+
+    if (allowed_names)
+    {
+        for (size_t i = 0; i < compared.allowed_count; i++)
+            free(allowed_names[i]);
+        free(allowed_names);
+    }
 
     int exit_code = result.allowed ? EXIT_SUCCESS : EXIT_FAILURE;
     access_result_free(&result);

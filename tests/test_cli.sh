@@ -82,6 +82,17 @@ expect_exit "--json unknown user exits 1" 1 "$BIN" --json __y_not_no_such_user__
 expect_contains "--json unknown user reason" "\"reason\": \"user_not_found\"" \
     "$BIN" --json __y_not_no_such_user__ read /etc/hosts
 
+# --compare: the primary user's verdict (and exit code) is unchanged, with an
+# extra report of which listed accounts are allowed. root can read any readable
+# file, so it is a deterministic "allowed" entry regardless of who runs this.
+expect_exit "--compare keeps the primary verdict" 0 "$BIN" "$USER_NAME" read /usr/bin/ls --compare root,nobody
+expect_contains "--compare lists allowed accounts" "allowed for:" "$BIN" "$USER_NAME" read /usr/bin/ls --compare root,nobody
+expect_contains "--compare names an allowed account" "root" "$BIN" "$USER_NAME" read /usr/bin/ls --compare root
+expect_contains "--compare drops unknown accounts" "allowed for:" "$BIN" "$USER_NAME" read /usr/bin/ls --compare __y_not_no_such_user__
+expect_contains "--json --compare emits allowed_for" "allowed_for" "$BIN" --json "$USER_NAME" read /usr/bin/ls --compare root
+expect_exit "--compare requires a list argument" 1 "$BIN" "$USER_NAME" read /usr/bin/ls --compare
+expect_exit "unknown trailing flag is rejected" 1 "$BIN" "$USER_NAME" read /usr/bin/ls --bogus value
+
 # A pathologically long path argument must be rejected cleanly, not crash
 long_path="/"
 i=0

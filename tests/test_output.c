@@ -41,7 +41,7 @@ static void render_silently(const AccessResult *result, const User *user, Access
     dup2(devnull, STDOUT_FILENO);
     close(devnull);
 
-    render_result_text(result, user, op);
+    render_result_text(result, user, op, NULL);
 
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
@@ -64,7 +64,7 @@ static char *render_and_capture(const AccessResult *result, const User *user,
         return NULL;
     }
 
-    render_result_text(result, user, op);
+    render_result_text(result, user, op, NULL);
     fflush(stdout);
     dup2(saved, STDOUT_FILENO);
     close(saved);
@@ -726,6 +726,118 @@ static void check_attribute_annotations_and_proof(void)
     free(comps[1].path);
 }
 
+/* Like render_and_capture() but exercises the --compare path: the renderer is
+   handed a ComparedUsers so the "allowed for:" line is produced. */
+static char *render_compare_and_capture(const AccessResult *result, const User *user,
+                                        AccessOperation op, const ComparedUsers *compared)
+{
+    FILE *capture = tmpfile();
+    if (!capture)
+        return NULL;
+    fflush(stdout);
+    int saved = dup(STDOUT_FILENO);
+    if (saved == -1 || dup2(fileno(capture), STDOUT_FILENO) == -1)
+    {
+        if (saved != -1)
+            close(saved);
+        fclose(capture);
+        return NULL;
+    }
+
+    render_result_text(result, user, op, compared);
+    fflush(stdout);
+    dup2(saved, STDOUT_FILENO);
+    close(saved);
+
+    if (fseek(capture, 0, SEEK_END) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    long length = ftell(capture);
+    if (length < 0 || fseek(capture, 0, SEEK_SET) != 0)
+    {
+        fclose(capture);
+        return NULL;
+    }
+    char *text = malloc((size_t)length + 1);
+    if (text)
+    {
+        size_t read_count = fread(text, 1, (size_t)length, capture);
+        text[read_count] = '\0';
+    }
+    fclose(capture);
+    return text;
+}
+
+/* --compare renders an "allowed for:" line right under the verdict: the given
+   names when some are allowed, the literal "none" when none are, and nothing at
+   all when comparison was not requested. This holds for both allowed and denied
+   verdicts. */
+static void check_compare_line_is_rendered(void)
+{
+    PathComponent comps[2] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_execute = true;
+    comps[1].path = strdup("/target");
+    comps[1].st.st_mode = S_IFREG | 0644;
+    comps[1].checked_permission_known = true;
+    comps[1].checked_permission = (PermissionResult){
+        .allowed = false, .reason = REASON_OTHER_DENIED,
+        .source = PERMISSION_SOURCE_UNIX_OTHER};
+
+    AccessPath ap = {.components = comps, .count = 2};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "elena"};
+
+    const char *names[] = {"root", "backup"};
+    ComparedUsers some = {.requested = true, .allowed = names, .allowed_count = 2};
+    ComparedUsers none = {.requested = true, .allowed = NULL, .allowed_count = 0};
+    ComparedUsers off = {0};
+
+    /* Denied verdict, some accounts allowed. */
+    AccessResult denied = {.allowed = false, .reason = REASON_OTHER_DENIED,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+    char *text = render_compare_and_capture(&denied, &user, ACCESS_WRITE, &some);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "allowed for: root, backup") != NULL);
+        free(text);
+    }
+
+    /* Denied verdict, none allowed -> "none". */
+    text = render_compare_and_capture(&denied, &user, ACCESS_WRITE, &none);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "allowed for: none") != NULL);
+        free(text);
+    }
+
+    /* Allowed verdict, some accounts allowed. */
+    AccessResult allowed = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+    text = render_compare_and_capture(&allowed, &user, ACCESS_READ, &some);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "allowed for: root, backup") != NULL);
+        free(text);
+    }
+
+    /* Comparison not requested -> no line at all. */
+    text = render_compare_and_capture(&allowed, &user, ACCESS_READ, &off);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "allowed for") == NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+}
+
 int main(void)
 {
     check_deep_tree_does_not_crash();
@@ -744,5 +856,6 @@ int main(void)
     check_uninspectable_component_is_honest();
     check_sticky_proof_is_rendered();
     check_attribute_annotations_and_proof();
+    check_compare_line_is_rendered();
     return TEST_SUMMARY();
 }

@@ -104,7 +104,7 @@ static char *render_and_capture(const AccessResult *result, const char *user,
     Capture cap;
     if (!begin_capture(&cap))
         return NULL;
-    render_result_json(result, user, op, path);
+    render_result_json(result, user, op, path, NULL);
     return end_capture(&cap);
 }
 
@@ -115,6 +115,19 @@ static char *user_not_found_and_capture(const char *user, AccessOperation op,
     if (!begin_capture(&cap))
         return NULL;
     render_user_not_found_json(user, op, path);
+    return end_capture(&cap);
+}
+
+/* Capture variant that drives the --compare path, so the additive
+   "allowed_for" array is emitted. */
+static char *compare_and_capture(const AccessResult *result, const char *user,
+                                 AccessOperation op, const char *path,
+                                 const ComparedUsers *compared)
+{
+    Capture cap;
+    if (!begin_capture(&cap))
+        return NULL;
+    render_result_json(result, user, op, path, compared);
     return end_capture(&cap);
 }
 
@@ -792,6 +805,49 @@ static void check_attribute_json(void)
     free_components(comps2, 2);
 }
 
+/* --compare adds an "allowed_for" array only when requested: the listed names
+   when some accounts are allowed, an empty array when none are, and the key is
+   absent entirely otherwise (so the base schema gains nothing it must handle).
+   Names are escaped like any other JSON string. */
+static void check_allowed_for_array(void)
+{
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/target", S_IFREG | 0644);
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = true, .reason = REASON_NONE, .access_path = &ap};
+
+    const char *names[] = {"root", "back\"up"};
+    ComparedUsers some = {.requested = true, .allowed = names, .allowed_count = 2};
+    ComparedUsers none = {.requested = true, .allowed = NULL, .allowed_count = 0};
+    ComparedUsers off = {0};
+
+    char *json = compare_and_capture(&result, "alice", ACCESS_READ, "/target", &some);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"allowed_for\": [\"root\",\"back\\\"up\"]") != NULL);
+        free(json);
+    }
+
+    json = compare_and_capture(&result, "alice", ACCESS_READ, "/target", &none);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"allowed_for\": []") != NULL);
+        free(json);
+    }
+
+    json = compare_and_capture(&result, "alice", ACCESS_READ, "/target", &off);
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "allowed_for") == NULL);
+        free(json);
+    }
+
+    free_components(comps, 2);
+}
+
 int main(void)
 {
     check_allowed_case();
@@ -811,5 +867,6 @@ int main(void)
     check_mac_block_in_json();
     check_delete_json();
     check_attribute_json();
+    check_allowed_for_array();
     return TEST_SUMMARY();
 }
