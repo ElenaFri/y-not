@@ -527,6 +527,9 @@ static const struct
     {REASON_SYMLINK_LOOP, "symlink_loop", true},
     {REASON_MOUNT_READ_ONLY, "mount_read_only", false},
     {REASON_MOUNT_NOEXEC, "mount_noexec", false},
+    {REASON_STICKY_BIT, "sticky_bit", false},
+    {REASON_DELETE_ROOT, "delete_root", false},
+    {REASON_DELETE_SPECIAL, "delete_special", false},
 };
 
 static void check_every_reason_message(void)
@@ -562,6 +565,61 @@ static void check_every_reason_message(void)
 
         free_components(comps, 2);
     }
+}
+
+/* delete denials add an `entry_owner` field on the target component (the owner
+   of the entry itself, from lstat) in both the resolved and stat-failed trace
+   branches, and the sticky/root/special reasons get their own codes. */
+static void check_delete_json(void)
+{
+    /* Sticky denial: the target resolves, so entry_owner sits beside owner. */
+    PathComponent comps[2] = {0};
+    make_root_and_target(comps, "/uploads/report.csv", S_IFREG | 0644);
+    comps[1].checked_permission_known = false;
+    comps[1].denial_reason = REASON_STICKY_BIT;
+    comps[1].link_st_known = true;
+    comps[1].link_st.st_uid = 1234;
+
+    AccessPath ap = {.components = comps, .count = 2};
+    AccessResult result = {.allowed = false, .reason = REASON_STICKY_BIT,
+                           .blocked_path = comps[1].path, .access_path = &ap};
+
+    char *json = render_and_capture(&result, "bob", ACCESS_DELETE,
+                                    "/uploads/report.csv");
+    CHECK(json != NULL);
+    if (json)
+    {
+        CHECK(strstr(json, "\"reason\": \"sticky_bit\"") != NULL);
+        CHECK(strstr(json, "\"resolved\": true") != NULL);
+        CHECK(strstr(json, "\"entry_owner\": \"1234\"") != NULL);
+        CHECK(strstr(json, "\"remediation\": \"take ownership") != NULL);
+        free(json);
+    }
+    free_components(comps, 2);
+
+    /* A broken-symlink delete target is unresolved, yet lstat succeeded on the
+       link itself, so entry_owner is still reported in the stat-failed branch. */
+    PathComponent comps2[2] = {0};
+    make_root_and_target(comps2, "/uploads/link", S_IFLNK | 0777);
+    comps2[1].checked_permission_known = false;
+    comps2[1].denial_reason = REASON_BROKEN_SYMLINK;
+    comps2[1].link_st_known = true;
+    comps2[1].link_st.st_uid = 1234;
+
+    AccessPath ap2 = {.components = comps2, .count = 2};
+    AccessResult result2 = {.allowed = false, .reason = REASON_BROKEN_SYMLINK,
+                            .blocked_path = comps2[1].path, .access_path = &ap2};
+
+    char *json2 = render_and_capture(&result2, "bob", ACCESS_DELETE,
+                                     "/uploads/link");
+    CHECK(json2 != NULL);
+    if (json2)
+    {
+        CHECK(strstr(json2, "\"resolved\": false") != NULL);
+        CHECK(strstr(json2, "\"entry_owner\": \"1234\"") != NULL);
+        free(json2);
+    }
+    free_components(comps2, 2);
 }
 
 /* Every control character JSON requires escaping, not just " and \. */
@@ -698,5 +756,6 @@ int main(void)
     check_control_character_escaping();
     check_unresolvable_uid_gid();
     check_mac_block_in_json();
+    check_delete_json();
     return TEST_SUMMARY();
 }

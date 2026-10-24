@@ -196,6 +196,121 @@ static void check_path_inspection_error_is_reported_before_dac(void)
     access_result_free(&result);
 }
 
+/* delete walks the parent chain and then applies the sticky-bit ownership rule.
+   These cases drive every branch of that logic deterministically through the
+   mocked path/permission layer, including the ones a real filesystem cannot
+   produce on demand (an empty resolved path, a NULL entry name, a read-only
+   mount, and an allocation failure mid-denial). */
+static void check_delete_logic(void)
+{
+    User user = {.name = "fixture"};
+
+    /* Defensive: an empty resolved path is reported as not-found. */
+    setup_fixture(false);
+    fixture_path.count = 0;
+    AccessResult result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_NOT_FOUND);
+    access_result_free(&result);
+
+    /* The ".." entry cannot be removed. */
+    setup_fixture(false);
+    fixture_components[1].path = "/..";
+    result = check_access(&user, "/..", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_DELETE_SPECIAL);
+    access_result_free(&result);
+
+    /* A trailing slash on the entry name is stripped before the . / .. test;
+       the name is ordinary, so a writable non-sticky parent allows removal. */
+    setup_fixture(false);
+    fixture_components[1].path = "/entry/";
+    fixture_components[1].link_st_known = true;
+    result = check_access(&user, "/entry/", ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* Defensive: a NULL entry name is tolerated by the . / .. test. */
+    setup_fixture(false);
+    fixture_components[1].path = NULL;
+    fixture_components[1].link_st_known = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* A component flagged during resolution short-circuits the walk and is the
+       reported blocker, before any permission is evaluated on it. */
+    setup_fixture(false);
+    fixture_components[1].path = "/mid";
+    fixture_components[1].st.st_mode = S_IFDIR | 0755;
+    fixture_components[1].st.st_uid = 0;
+    fixture_components[1].denial_reason = REASON_BROKEN_SYMLINK;
+    fixture_components[2].path = "/mid/target";
+    fixture_components[2].st.st_mode = S_IFREG | 0755;
+    fixture_components[2].st.st_uid = 0;
+    fixture_path.count = 3;
+    result = check_access(&user, "/mid/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_BROKEN_SYMLINK);
+    CHECK(result.blocked_path && strcmp(result.blocked_path, "/mid") == 0);
+    access_result_free(&result);
+
+    /* A read-only mount on the parent blocks removal even when DAC allows it. */
+    setup_fixture(false);
+    fixture_components[0].mount_flags_known = true;
+    fixture_components[0].mount_read_only = true;
+    fixture_components[1].link_st_known = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_MOUNT_READ_ONLY);
+    access_result_free(&result);
+
+    /* Sticky parent, user owns neither entry nor directory: denied. If the
+       allocation that records the blocked path fails, the result degrades to
+       not-found and frees the path rather than reporting a bogus "allowed". */
+    setup_fixture(false);
+    fixture_components[0].st.st_mode = S_IFDIR | 0755 | S_ISVTX;
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].link_st.st_uid = 1;
+    user.uid = 5;
+    fail_next_strdup = true;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(!result.allowed && result.reason == REASON_NOT_FOUND);
+    CHECK(result.access_path == NULL && result.blocked_path == NULL);
+    CHECK(path_free_calls == 1);
+    access_result_free(&result);
+
+    /* Sticky parent, but root is exempt from the ownership restriction. */
+    setup_fixture(false);
+    fixture_components[0].st.st_mode = S_IFDIR | 0755 | S_ISVTX;
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].link_st.st_uid = 1;
+    user.uid = 0;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* Sticky parent, but the user owns the entry: allowed. */
+    setup_fixture(false);
+    fixture_components[0].st.st_mode = S_IFDIR | 0755 | S_ISVTX;
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].link_st.st_uid = 1;
+    user.uid = 1;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+
+    /* Sticky parent, but the user owns the directory: allowed. The parent is
+       owned by a non-root uid, so permissions for it must be granted too. */
+    setup_fixture(false);
+    for (size_t op = 0; op < 3; op++)
+        decisions[2][op] = decisions[0][op];
+    fixture_components[0].st.st_mode = S_IFDIR | 0755 | S_ISVTX;
+    fixture_components[0].st.st_uid = 2;
+    fixture_components[1].link_st_known = true;
+    fixture_components[1].link_st.st_uid = 1;
+    user.uid = 2;
+    result = check_access(&user, "/target", ACCESS_DELETE);
+    CHECK(result.allowed);
+    access_result_free(&result);
+}
+
 int main(void)
 {
     check_path_resolution_failure();
@@ -204,5 +319,6 @@ int main(void)
     check_mount_restrictions_override_dac_allow();
     check_path_inspection_error_is_reported_before_dac();
     check_strdup_failure_never_returns_allowed();
+    check_delete_logic();
     return TEST_SUMMARY();
 }

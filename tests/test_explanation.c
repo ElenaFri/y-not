@@ -113,6 +113,16 @@ int main(void)
         "the parent directory has the sticky bit; you own neither the entry nor the directory");
 
     check_explanation(
+        REASON_DELETE_ROOT, ACCESS_DELETE, (PermissionResult){0},
+        1234, false,
+        "the filesystem root cannot be deleted");
+
+    check_explanation(
+        REASON_DELETE_SPECIAL, ACCESS_DELETE, (PermissionResult){0},
+        1234, false,
+        "the special . and .. directory entries cannot be deleted");
+
+    check_explanation(
         REASON_OWNER_DENIED, ACCESS_READ,
         (PermissionResult){.reason = REASON_OWNER_DENIED},
         1234, true,

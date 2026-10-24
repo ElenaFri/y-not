@@ -627,6 +627,48 @@ static void check_uninspectable_component_is_honest(void)
     free(comps[2].path);
 }
 
+/* A sticky-bit deletion denial has no single "checked permission" to print
+   (the entry itself was readable; it is the parent's sticky bit plus ownership
+   that blocks removal). The renderer must instead prove the verdict by naming
+   the entry owner and the directory owner. */
+static void check_sticky_proof_is_rendered(void)
+{
+    PathComponent comps[3] = {0};
+    comps[0].path = strdup("/");
+    comps[0].st.st_mode = S_IFDIR | 0755;
+    comps[0].can_execute = true;
+
+    comps[1].path = strdup("/uploads");
+    comps[1].st.st_mode = S_IFDIR | S_ISVTX | 01777;
+    comps[1].st.st_uid = 424243;
+    comps[1].can_execute = true;
+
+    comps[2].path = strdup("/uploads/report.csv");
+    comps[2].st.st_mode = S_IFREG | 0644;
+    comps[2].link_st.st_uid = 424242;
+    comps[2].link_st_known = true;
+    comps[2].denial_reason = REASON_STICKY_BIT;
+    /* checked_permission_known stays false: forces the sticky proof branch. */
+
+    AccessPath ap = {.components = comps, .count = 3};
+    AccessResult result = {.allowed = false, .reason = REASON_STICKY_BIT,
+                           .blocked_path = comps[2].path, .access_path = &ap};
+    User user = {.uid = 1000, .primary_gid = 1000, .name = "elena"};
+
+    char *text = render_and_capture(&result, &user, ACCESS_DELETE);
+    CHECK(text != NULL);
+    if (text)
+    {
+        CHECK(strstr(text, "sticky bit set; entry owner") != NULL);
+        CHECK(strstr(text, "directory owner") != NULL);
+        free(text);
+    }
+
+    free(comps[0].path);
+    free(comps[1].path);
+    free(comps[2].path);
+}
+
 int main(void)
 {
     check_deep_tree_does_not_crash();
@@ -643,5 +685,6 @@ int main(void)
     check_defensive_default_cases();
     check_mac_warning_on_allowed_verdict();
     check_uninspectable_component_is_honest();
+    check_sticky_proof_is_rendered();
     return TEST_SUMMARY();
 }
