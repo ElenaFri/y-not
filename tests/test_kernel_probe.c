@@ -15,12 +15,17 @@
    user cannot be looked up, in which case the caller skips. */
 static User *current_user(void)
 {
-    const struct passwd *pw = getpwuid(getuid());
-    return pw ? user_lookup(pw->pw_name) : NULL;
+    struct passwd pwd;
+    struct passwd *result = NULL;
+    char storage[1024];
+    if (getpwuid_r(getuid(), &pwd, storage, sizeof storage, &result) != 0 ||
+        !result)
+        return NULL;
+    return user_lookup(pwd.pw_name);
 }
 
 /* Build a fresh temp directory and a regular file inside it with `file_mode`,
-   with the directory traversable (0755). Returns false on setup failure. */
+   with the directory owner-traversable (0700). Returns false on setup failure. */
 static bool make_file(char *dir, size_t dir_size, char *file, size_t file_size,
                       mode_t file_mode)
 {
@@ -32,7 +37,7 @@ static bool make_file(char *dir, size_t dir_size, char *file, size_t file_size,
     if (!f)
         return false;
     fclose(f);
-    return chmod(file, file_mode) == 0 && chmod(dir, 0755) == 0;
+    return chmod(file, file_mode) == 0 && chmod(dir, 0700) == 0;
 }
 
 static void cleanup_file(const char *dir, const char *file)
@@ -63,7 +68,8 @@ static void check_current_user_in_process(void)
     if (!me)
         return;
 
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (!make_file(dir, sizeof(dir), file, sizeof(file), 0644))
     {
         CHECK(false);
@@ -152,10 +158,13 @@ static void check_other_user(void)
         return;
     }
 
-    const struct passwd *nobody = getpwnam("nobody");
-    if (!nobody)
+    struct passwd pwd;
+    struct passwd *nobody = NULL;
+    char storage[1024];
+    if (getpwnam_r("nobody", &pwd, storage, sizeof storage, &nobody) != 0 ||
+        !nobody)
         return;
-    User target = {.uid = nobody->pw_uid, .primary_gid = nobody->pw_gid,
+    User target = {.uid = pwd.pw_uid, .primary_gid = pwd.pw_gid,
                    .groups = NULL, .group_count = 0, .name = "nobody"};
 
     /* nobody can read a world-readable system binary. */
@@ -163,13 +172,13 @@ static void check_other_user(void)
     CHECK(allowed.verdict == KERNEL_PROBE_ALLOWED);
 
     /* nobody cannot reach a file inside a 0700 directory owned by root. */
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (make_file(dir, sizeof(dir), file, sizeof(file), 0644) &&
         chmod(dir, 0700) == 0)
     {
         KernelProbe denied = kernel_probe_access(&target, file, ACCESS_READ);
         CHECK(denied.verdict == KERNEL_PROBE_DENIED);
-        chmod(dir, 0755);
         cleanup_file(dir, file);
     }
 }

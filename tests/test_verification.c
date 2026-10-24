@@ -127,8 +127,13 @@ static void check_delete_special_denials_are_skipped(void)
    supplementary groups. Returns NULL only if lookup fails, so the caller skips. */
 static User *current_user(void)
 {
-    const struct passwd *pw = getpwuid(getuid());
-    return pw ? user_lookup(pw->pw_name) : NULL;
+    struct passwd pwd;
+    struct passwd *result = NULL;
+    char storage[1024];
+    if (getpwuid_r(getuid(), &pwd, storage, sizeof storage, &result) != 0 ||
+        !result)
+        return NULL;
+    return user_lookup(pwd.pw_name);
 }
 
 /* Create a traversable temp directory with a regular file of `mode` inside. */
@@ -143,7 +148,7 @@ static bool make_file(char *dir, size_t dir_size, char *file, size_t file_size,
     if (!f)
         return false;
     fclose(f);
-    return chmod(file, mode) == 0 && chmod(dir, 0755) == 0;
+    return chmod(file, mode) == 0 && chmod(dir, 0700) == 0;
 }
 
 static void cleanup_file(const char *dir, const char *file)
@@ -159,7 +164,8 @@ static void check_confirmed_when_model_and_kernel_agree(void)
     User *me = current_user();
     if (!me)
         return;
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (!make_file(dir, sizeof dir, file, sizeof file, 0644))
     {
         CHECK(false);
@@ -187,7 +193,8 @@ static void check_divergent_when_model_denies_readable_file(void)
     User *me = current_user();
     if (!me)
         return;
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (!make_file(dir, sizeof dir, file, sizeof file, 0644))
     {
         CHECK(false);
@@ -215,7 +222,8 @@ static void check_empty_access_path_falls_back_to_path(void)
     User *me = current_user();
     if (!me)
         return;
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (!make_file(dir, sizeof dir, file, sizeof file, 0644))
     {
         CHECK(false);
@@ -241,7 +249,8 @@ static void check_allowed_delete_is_not_probed(void)
     User *me = current_user();
     if (!me)
         return;
-    char dir[256], file[sizeof(dir) + 16];
+    char dir[256];
+    char file[sizeof(dir) + 16];
     if (!make_file(dir, sizeof dir, file, sizeof file, 0644))
     {
         CHECK(false);
