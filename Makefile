@@ -13,14 +13,25 @@ SRCS := $(wildcard $(SRCDIR)/*.c) $(wildcard $(SRCDIR)/*/*.c)
 OBJS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
+# Security hardening. Intel CET (IBT + shadow stack) must be enabled on every
+# translation unit or the loader downgrades the whole binary, so
+# -fcf-protection lives in the base compile flags. It is x86-only, so probe the
+# compiler first and omit it silently on targets that reject it (e.g. ARM).
+cc-option = $(shell $(CC) $(1) -x c -c /dev/null -o /dev/null >/dev/null 2>&1 && echo $(1))
+CFLAGS_HARDEN  := $(call cc-option,-fcf-protection=full)
+# Full RELRO: resolve all symbols at startup (-z,now), then remap the GOT
+# read-only (-z,relro), closing the "partial RELRO" gap. Generic across GNU ld
+# targets, so passed unconditionally.
+LDFLAGS_HARDEN := -Wl,-z,relro -Wl,-z,now
+
 CFLAGS_BASE    := -std=c11 -Wall -Wextra -Wpedantic -I$(INCDIR) \
                   -D_DEFAULT_SOURCE -DY_NOT_VERSION=\"$(VERSION)\" \
-                  -fstack-protector-strong -MMD -MP
+                  -fstack-protector-strong $(CFLAGS_HARDEN) -MMD -MP
 CFLAGS_RELEASE := $(CFLAGS_BASE) -O2 -DNDEBUG
 CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
-LDFLAGS       :=
-LDFLAGS_DEBUG := -fsanitize=address,undefined
+LDFLAGS       := $(LDFLAGS_HARDEN)
+LDFLAGS_DEBUG := $(LDFLAGS_HARDEN) -fsanitize=address,undefined
 LDLIBS        := -lacl -lcap -lselinux
 
 # Honour CFLAGS from environment, default to release profile
