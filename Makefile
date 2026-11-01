@@ -13,21 +13,36 @@ SRCS := $(wildcard $(SRCDIR)/*.c) $(wildcard $(SRCDIR)/*/*.c)
 OBJS := $(patsubst $(SRCDIR)/%.c,$(BUILDDIR)/%.o,$(SRCS))
 DEPS := $(OBJS:.o=.d)
 
-# Security hardening. Intel CET (IBT + shadow stack) must be enabled on every
-# translation unit or the loader downgrades the whole binary, so
-# -fcf-protection lives in the base compile flags. It is x86-only, so probe the
-# compiler first and omit it silently on targets that reject it (e.g. ARM).
+# Security hardening. Flags that some targets reject are passed through
+# cc-option, which keeps them only when the compiler accepts them (e.g. CET is
+# x86-only, so it is silently dropped on ARM).
+#   -fcf-protection=full    Intel CET (IBT + shadow stack). Must be on every
+#                           translation unit or the loader downgrades the whole
+#                           binary, hence it lives in the base compile flags.
+#   -fstack-clash-protection Probe each stack allocation so a large frame cannot
+#                           jump the guard page into the heap.
+#   -fPIE                   Make position-independence explicit instead of
+#                           relying on the distro default, so full ASLR holds on
+#                           every toolchain.
 cc-option = $(shell $(CC) $(1) -x c -c /dev/null -o /dev/null >/dev/null 2>&1 && echo $(1))
-CFLAGS_HARDEN  := $(call cc-option,-fcf-protection=full)
-# Full RELRO: resolve all symbols at startup (-z,now), then remap the GOT
-# read-only (-z,relro), closing the "partial RELRO" gap. Generic across GNU ld
-# targets, so passed unconditionally.
-LDFLAGS_HARDEN := -Wl,-z,relro -Wl,-z,now
+CFLAGS_HARDEN  := $(call cc-option,-fcf-protection=full) \
+                  $(call cc-option,-fstack-clash-protection) -fPIE
+# Link-time hardening (generic across GNU ld targets, passed unconditionally):
+#   -pie                Position-independent executable (full ASLR).
+#   -z relro,-z now     Full RELRO: resolve all symbols at startup, then remap
+#                       the GOT read-only, closing the "partial RELRO" gap.
+#   -z noexecstack      Keep the stack non-executable even if an input object
+#                       requests an executable stack.
+LDFLAGS_HARDEN := -pie -Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack
 
 CFLAGS_BASE    := -std=c11 -Wall -Wextra -Wpedantic -I$(INCDIR) \
                   -D_DEFAULT_SOURCE -DY_NOT_VERSION=\"$(VERSION)\" \
                   -fstack-protector-strong $(CFLAGS_HARDEN) -MMD -MP
-CFLAGS_RELEASE := $(CFLAGS_BASE) -O2 -DNDEBUG
+# _FORTIFY_SOURCE adds compile- and run-time bounds checks to libc calls. It
+# needs an optimising build (so it is release-only, not in the debug/ASan or
+# coverage profiles which compile at -O0) and must be undefined first in case
+# the toolchain already predefines a lower level.
+CFLAGS_RELEASE := $(CFLAGS_BASE) -O2 -DNDEBUG -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=3
 CFLAGS_DEBUG   := $(CFLAGS_BASE) -O0 -g3 -fsanitize=address,undefined -DDEBUG
 
 LDFLAGS       := $(LDFLAGS_HARDEN)
