@@ -2,6 +2,15 @@
 
 All notable changes to `y-not` are documented here.
 
+## v1.8.1 — Harden the release binary
+
+A build-only hardening pass; no change to behaviour, output or the CLI.
+
+- Enable full RELRO (`-Wl,-z,relro -Wl,-z,now`) so the GOT is remapped read-only after symbol resolution, closing the partial-RELRO gap
+- Add `_FORTIFY_SOURCE=3` to the release build for compile- and run-time bounds checks on libc calls, plus `-fstack-clash-protection` against stack allocations that jump the guard page
+- Make position-independence and the non-executable stack explicit (`-fPIE`/`-pie`, `-Wl,-z,noexecstack`) so full ASLR and NX hold regardless of toolchain defaults
+- Emit Intel CET (IBT/SHSTK) instrumentation (`-fcf-protection=full`); all target-specific flags are probed through `cc-option`, so non-x86 builds drop what they cannot accept and keep building
+
 ## v1.8.0 — Cross-check the verdict against the kernel
 
 Don't take y-not's word for it: where it safely can, y-not asks the kernel too, and tells you when they disagree.
